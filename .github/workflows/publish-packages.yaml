@@ -35,7 +35,7 @@ jobs:
             goarch: arm64
             wasmvm_lib: libwasmvm.dylib
           - name: linux-arm64
-            os: ubuntu-22.04-arm64
+            os: ubuntu-22.04-arm
             goarch: arm64
             goos: linux
             wasmvm_lib: libwasmvm.aarch64.so
