@@ -20,7 +20,7 @@ Supported platforms:
 ## Directory Structure
 
 ```
-dist/
+packaging/
 ├── AGENTS.md                 # This file
 ├── Dockerfile                # Docker build definition
 ├── docker-bake.hcl           # Buildx bake configuration
@@ -138,7 +138,7 @@ binaries/
 ### Building All Packages
 
 ```bash
-cd dist
+cd packaging
 make all-build VERSION=1.17.2
 ```
 
@@ -196,7 +196,7 @@ docker buildx bake --file docker-bake.hcl all-packages
 **Important**: Platform packages MUST be published before the base package!
 
 ```bash
-cd dist
+cd packaging
 
 # 1. Build everything
 make npm-build VERSION=1.17.2
@@ -211,7 +211,7 @@ make npm-publish-platform PLATFORM=darwin-arm64 NPM_TOKEN=xxx
 ### PyPI Publishing
 
 ```bash
-cd dist
+cd packaging
 make pypi-build VERSION=1.17.2
 make pypi-publish PYPI_TOKEN=xxx VERSION=1.17.2
 ```
@@ -219,7 +219,7 @@ make pypi-publish PYPI_TOKEN=xxx VERSION=1.17.2
 ### TestPyPI (Testing)
 
 ```bash
-cd dist
+cd packaging
 make pypi-publish-test PYPI_TOKEN=xxx VERSION=1.17.2
 ```
 
@@ -349,7 +349,7 @@ pip install --no-binary injective-core injective-core
 Clean and rebuild:
 
 ```bash
-cd dist && make clean
+cd packaging && make clean
 ```
 
 ### Cross-Compilation Notes

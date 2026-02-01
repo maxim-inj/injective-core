@@ -59,7 +59,7 @@ jobs:
           GOARCH: ${{ matrix.platform.goarch }}
           CGO_ENABLED: 1
         run: |
-          mkdir -p dist/binaries
+          mkdir -p packaging/binaries
           VERSION="${{ github.event.inputs.tag }}"
           VERSION=${VERSION#v}
           GIT_COMMIT=$(git rev-parse --short HEAD)
@@ -73,22 +73,22 @@ jobs:
             CC=aarch64-linux-gnu-gcc CGO_ENABLED=1 go build \
               -tags "netgo,ledger" \
               -ldflags "${VERSION_FLAGS} -extldflags '-static'" \
-              -o dist/binaries/injectived-${{ matrix.platform.name }} \
+              -o packaging/binaries/injectived-${{ matrix.platform.name }} \
               ./cmd/injectived
           else
             go build \
               -tags "netgo,ledger" \
               -ldflags "${VERSION_FLAGS}" \
-              -o dist/binaries/injectived-${{ matrix.platform.name }} \
+              -o packaging/binaries/injectived-${{ matrix.platform.name }} \
               ./cmd/injectived
           fi
-          chmod +x dist/binaries/injectived-${{ matrix.platform.name }}
+          chmod +x packaging/binaries/injectived-${{ matrix.platform.name }}
 
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
           name: binary-${{ matrix.platform.name }}
-          path: dist/binaries/injectived-${{ matrix.platform.name }}
+          path: packaging/binaries/injectived-${{ matrix.platform.name }}
           retention-days: 1
 
   # =============================================================================
@@ -123,13 +123,13 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: binary-${{ matrix.platform }}
-          path: dist/binaries
+          path: packaging/binaries
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
       - name: Build NPM package
-        working-directory: dist
+        working-directory: packaging
         run: |
           VERSION_NO_V="${{ github.event.inputs.tag }}"
           VERSION_NO_V="${VERSION_NO_V#v}"
@@ -150,7 +150,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: npm-${{ matrix.platform }}
-          path: dist/output/npm/injective-core-${{ matrix.platform }}
+          path: packaging/output/npm/injective-core-${{ matrix.platform }}
           retention-days: 1
 
   # =============================================================================
@@ -169,7 +169,7 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Build base package
-        working-directory: dist
+        working-directory: packaging
         run: |
           VERSION_NO_V="${{ github.event.inputs.tag }}"
           VERSION_NO_V="${VERSION_NO_V#v}"
@@ -193,7 +193,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: npm-base
-          path: dist/output/npm/injective-core
+          path: packaging/output/npm/injective-core
           retention-days: 1
 
   # =============================================================================
@@ -225,13 +225,13 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: binary-${{ matrix.platform }}
-          path: dist/binaries
+          path: packaging/binaries
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
       - name: Build PyPI wheel
-        working-directory: dist
+        working-directory: packaging
         run: |
           VERSION_NO_V="${{ github.event.inputs.tag }}"
           VERSION_NO_V="${VERSION_NO_V#v}"
@@ -251,7 +251,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: pypi-${{ matrix.platform }}
-          path: dist/output/pypi/*.whl
+          path: packaging/output/pypi/*.whl
           retention-days: 1
           if-no-files-found: error
 
