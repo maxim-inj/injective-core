@@ -34,7 +34,7 @@ target "npm-darwin-arm64" {
     }
     platforms = ["linux/amd64"]  // Build on AMD64, target doesn't matter for this
     output = ["type=local,dest=${OUTPUT_DIR}/npm"]
-    tags = ["injective-core/npm-darwin-arm64:${VERSION}"]
+    tags = ["injective-cli/npm-darwin-arm64:${VERSION}"]
 }
 
 target "npm-linux-arm64" {
@@ -48,7 +48,7 @@ target "npm-linux-arm64" {
     }
     platforms = ["linux/amd64"]
     output = ["type=local,dest=${OUTPUT_DIR}/npm"]
-    tags = ["injective-core/npm-linux-arm64:${VERSION}"]
+    tags = ["injective-cli/npm-linux-arm64:${VERSION}"]
 }
 
 target "npm-linux-x64" {
@@ -62,7 +62,7 @@ target "npm-linux-x64" {
     }
     platforms = ["linux/amd64"]
     output = ["type=local,dest=${OUTPUT_DIR}/npm"]
-    tags = ["injective-core/npm-linux-x64:${VERSION}"]
+    tags = ["injective-cli/npm-linux-x64:${VERSION}"]
 }
 
 // =============================================================================
@@ -79,7 +79,7 @@ target "pypi-darwin-arm64" {
     }
     platforms = ["linux/amd64"]
     output = ["type=local,dest=${OUTPUT_DIR}/pypi"]
-    tags = ["injective-core/pypi-darwin-arm64:${VERSION}"]
+    tags = ["injective-cli/pypi-darwin-arm64:${VERSION}"]
 }
 
 target "pypi-darwin-x64" {
@@ -92,7 +92,7 @@ target "pypi-darwin-x64" {
     }
     platforms = ["linux/amd64"]
     output = ["type=local,dest=${OUTPUT_DIR}/pypi"]
-    tags = ["injective-core/pypi-darwin-x64:${VERSION}"]
+    tags = ["injective-cli/pypi-darwin-x64:${VERSION}"]
 }
 
 target "pypi-linux-arm64" {
@@ -105,7 +105,7 @@ target "pypi-linux-arm64" {
     }
     platforms = ["linux/amd64"]
     output = ["type=local,dest=${OUTPUT_DIR}/pypi"]
-    tags = ["injective-core/pypi-linux-arm64:${VERSION}"]
+    tags = ["injective-cli/pypi-linux-arm64:${VERSION}"]
 }
 
 target "pypi-linux-x64" {
@@ -118,7 +118,7 @@ target "pypi-linux-x64" {
     }
     platforms = ["linux/amd64"]
     output = ["type=local,dest=${OUTPUT_DIR}/pypi"]
-    tags = ["injective-core/pypi-linux-x64:${VERSION}"]
+    tags = ["injective-cli/pypi-linux-x64:${VERSION}"]
 }
 
 // =============================================================================

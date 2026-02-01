@@ -56,26 +56,36 @@ ARG NODE_OS
 ARG NODE_ARCH
 ARG NODE_VERSION
 
-# Copy binary from build context
-# Note: The binary must exist - build will fail if not found
-COPY binaries/injectived-${PLATFORM} /tmp/injectived
+# Copy binaries from build context
+# Note: Expected files must exist - build will fail if not found
+COPY binaries/ /tmp/binaries/
 
 # Create platform-specific package
-RUN mkdir -p /output/npm/injective-core-${PLATFORM}/bin && \
-    cp /tmp/injectived /output/npm/injective-core-${PLATFORM}/bin/injectived && \
-    chmod +x /output/npm/injective-core-${PLATFORM}/bin/injectived && \
-    echo "Created NPM package for ${PLATFORM}"
+RUN set -e; \
+    case "${PLATFORM}" in \
+      darwin-arm64) wasmvm_lib="libwasmvm.dylib" ;; \
+      linux-arm64) wasmvm_lib="libwasmvm.aarch64.so" ;; \
+      linux-x64) wasmvm_lib="libwasmvm.x86_64.so" ;; \
+      *) echo "Unsupported platform: ${PLATFORM}" && exit 1 ;; \
+    esac; \
+    pkg_dir="/output/npm/injective-cli-${PLATFORM}/bin"; \
+    mkdir -p "$pkg_dir"; \
+    cp /tmp/binaries/injectived-${PLATFORM} "$pkg_dir/injectived-${PLATFORM}"; \
+    cp /tmp/binaries/${wasmvm_lib} "$pkg_dir/${wasmvm_lib}"; \
+    chmod +x "$pkg_dir/injectived-${PLATFORM}"; \
+    ln -sf "injectived-${PLATFORM}" "$pkg_dir/injectived"; \
+    echo "Created NPM package for ${PLATFORM} with ${wasmvm_lib}"
 
 # Generate package.json from template
-RUN export node_pkg="injective-core-${NODE_OS}-${NODE_ARCH}" && \
+RUN export node_pkg="injective-cli-${NODE_OS}-${NODE_ARCH}" && \
     export node_os="${NODE_OS}" && \
     export node_arch="${NODE_ARCH}" && \
     export node_version="${NODE_VERSION}" && \
-    envsubst < /build/npm/package.json.tmpl > /output/npm/injective-core-${PLATFORM}/package.json
+    envsubst < /build/npm/package.json.tmpl > /output/npm/injective-cli-${PLATFORM}/package.json
 
 # Copy base package to output
-RUN cp -r /build/npm/injective-core /output/npm/ && \
-    rm -rf /output/npm/injective-core/node_modules /output/npm/injective-core/src
+RUN cp -r /build/npm/injective-core /output/npm/injective-cli && \
+    rm -rf /output/npm/injective-cli/node_modules /output/npm/injective-cli/src
 
 # -----------------------------------------------------------------------------
 # NPM Output Stage
@@ -119,14 +129,23 @@ ARG PLATFORM
 ARG PYPI_PLATFORM
 ARG VERSION
 
-# Copy binary from build context
-# Note: The binary must exist - build will fail if not found
-COPY binaries/injectived-${PLATFORM} /tmp/injectived
+# Copy binaries from build context
+# Note: Expected files must exist - build will fail if not found
+COPY binaries/ /tmp/binaries/
 
-RUN mkdir -p src/injective_core/bin && \
-    cp /tmp/injectived src/injective_core/bin/injectived && \
-    chmod +x src/injective_core/bin/injectived && \
-    echo "Prepared binary for ${PLATFORM}"
+RUN set -e; \
+    case "${PLATFORM}" in \
+      darwin-arm64) wasmvm_lib="libwasmvm.dylib" ;; \
+      linux-arm64) wasmvm_lib="libwasmvm.aarch64.so" ;; \
+      linux-x64) wasmvm_lib="libwasmvm.x86_64.so" ;; \
+      *) echo "Unsupported platform: ${PLATFORM}" && exit 1 ;; \
+    esac; \
+    mkdir -p src/injective_core/bin; \
+    cp /tmp/binaries/injectived-${PLATFORM} src/injective_core/bin/injectived-${PLATFORM}; \
+    cp /tmp/binaries/${wasmvm_lib} src/injective_core/bin/${wasmvm_lib}; \
+    chmod +x src/injective_core/bin/injectived-${PLATFORM}; \
+    ln -sf "injectived-${PLATFORM}" src/injective_core/bin/injectived; \
+    echo "Prepared binary for ${PLATFORM} with ${wasmvm_lib}"
 
 # Update version in files
 RUN sed -i "s/version = \"[^\"]*\"/version = \"${VERSION}\"/g" pyproject.toml && \

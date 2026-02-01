@@ -8,16 +8,17 @@
 import * as https from "https";
 import * as fs from "fs";
 import * as path from "path";
-import { execSync } from "child_process";
+import * as os from "os";
 
 const VERSION = require("../package.json").version;
 const REPO = "InjectiveFoundation/injective-core";
+const AdmZip = require("adm-zip");
 
 // Mapping of platform/arch to GitHub release asset names
-const PLATFORM_ASSETS: Record<string, string> = {
-  "darwin-arm64": "injectived-darwin-arm64",
-  "linux-arm64": "injectived-linux-arm64",
-  "linux-x64": "injectived-linux-x64",
+const PLATFORM_ASSETS: Record<string, { zip: string; wasmvm: string }> = {
+  "darwin-arm64": { zip: "darwin-arm64.zip", wasmvm: "libwasmvm.dylib" },
+  "linux-arm64": { zip: "linux-arm64.zip", wasmvm: "libwasmvm.aarch64.so" },
+  "linux-x64": { zip: "linux-amd64.zip", wasmvm: "libwasmvm.x86_64.so" },
 };
 
 interface DownloadOptions {
@@ -59,7 +60,7 @@ function downloadFile(options: DownloadOptions): Promise<void> {
   });
 }
 
-function getAssetName(): string | null {
+function getAssetInfo(): { zip: string; wasmvm: string } | null {
   const key = `${process.platform}-${process.arch}`;
   return PLATFORM_ASSETS[key] || null;
 }
@@ -81,14 +82,8 @@ async function main(): Promise<void> {
     // Continue with download
   }
 
-  // Skip if already downloaded
-  if (fs.existsSync(binaryPath)) {
-    console.log("injectived binary already exists in fallback location.");
-    process.exit(0);
-  }
-
-  const assetName = getAssetName();
-  if (!assetName) {
+  const assetInfo = getAssetInfo();
+  if (!assetInfo) {
     console.warn(
       `Platform ${process.platform}-${process.arch} not supported for automatic download. ` +
       `Supported platforms: ${Object.keys(PLATFORM_ASSETS).join(", ")}`
@@ -96,10 +91,18 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
+  const wasmvmPath = path.join(binDir, assetInfo.wasmvm);
+
+  // Skip if already downloaded
+  if (fs.existsSync(binaryPath) && fs.existsSync(wasmvmPath)) {
+    console.log("injectived binary and wasmvm library already exist in fallback location.");
+    process.exit(0);
+  }
+
   // Construct download URL from GitHub releases
-  // Format: https://github.com/InjectiveFoundation/injective-core/releases/download/v{version}/{assetName}
+  // Format: https://github.com/InjectiveFoundation/injective-core/releases/download/v{version}/{zip}
   const tag = `v${VERSION}`;
-  const downloadUrl = `https://github.com/${REPO}/releases/download/${tag}/${assetName}`;
+  const downloadUrl = `https://github.com/${REPO}/releases/download/${tag}/${assetInfo.zip}`;
 
   console.log(`Downloading injectived binary for ${process.platform}-${process.arch}...`);
   console.log(`URL: ${downloadUrl}`);
@@ -109,12 +112,36 @@ async function main(): Promise<void> {
     fs.mkdirSync(binDir, { recursive: true });
   }
 
+  const zipPath = path.join(binDir, assetInfo.zip);
+  const extractDir = fs.mkdtempSync(path.join(os.tmpdir(), "injective-cli-"));
+
   try {
-    await downloadFile({ url: downloadUrl, dest: binaryPath });
-    
-    // Make binary executable on Unix
+    await downloadFile({ url: downloadUrl, dest: zipPath });
+
+    const zip = new AdmZip(zipPath);
+    zip.extractAllTo(extractDir, true);
+
+    const extractedBinary = path.join(extractDir, binaryName);
+    const extractedWasmvm = path.join(extractDir, assetInfo.wasmvm);
+
+    if (!fs.existsSync(extractedBinary) || !fs.existsSync(extractedWasmvm)) {
+      throw new Error(`Expected files not found in ${assetInfo.zip}`);
+    }
+
+    fs.copyFileSync(extractedBinary, binaryPath);
+    fs.copyFileSync(extractedWasmvm, wasmvmPath);
+
     if (process.platform !== "win32") {
       fs.chmodSync(binaryPath, 0o755);
+      const platformBinaryName = `injectived-${process.platform}-${process.arch}`;
+      const platformBinaryPath = path.join(binDir, platformBinaryName);
+      try {
+        if (!fs.existsSync(platformBinaryPath)) {
+          fs.symlinkSync(binaryName, platformBinaryPath);
+        }
+      } catch {
+        // ignore symlink errors
+      }
     }
 
     console.log(`Successfully installed injectived at ${binaryPath}`);
@@ -123,6 +150,13 @@ async function main(): Promise<void> {
     console.warn("You may need to manually install the binary or use the platform-specific npm package.");
     // Don't fail the install, just warn
     process.exit(0);
+  } finally {
+    try {
+      fs.rmSync(extractDir, { recursive: true, force: true });
+      fs.rmSync(zipPath, { force: true });
+    } catch {
+      // ignore cleanup errors
+    }
   }
 }
 

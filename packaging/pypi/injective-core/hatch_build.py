@@ -38,6 +38,28 @@ class InjectivedBuildHook(BuildHookInterface):
         "linux_aarch64": "injectived-linux-arm64",
         "linux_arm64": "injectived-linux-arm64",
     }
+
+    PLATFORM_LIBS = {
+        # macOS
+        "macosx_11_0_arm64": "libwasmvm.dylib",
+        "macosx_12_0_arm64": "libwasmvm.dylib",
+        "macosx_13_0_arm64": "libwasmvm.dylib",
+        "macosx_14_0_arm64": "libwasmvm.dylib",
+        "macosx_11_0_x86_64": "libwasmvm.dylib",
+        "macosx_12_0_x86_64": "libwasmvm.dylib",
+        "macosx_13_0_x86_64": "libwasmvm.dylib",
+        "macosx_14_0_x86_64": "libwasmvm.dylib",
+        # Linux
+        "manylinux2014_x86_64": "libwasmvm.x86_64.so",
+        "manylinux_2_17_x86_64": "libwasmvm.x86_64.so",
+        "manylinux_2_28_x86_64": "libwasmvm.x86_64.so",
+        "manylinux2014_aarch64": "libwasmvm.aarch64.so",
+        "manylinux_2_17_aarch64": "libwasmvm.aarch64.so",
+        "manylinux_2_28_aarch64": "libwasmvm.aarch64.so",
+        "linux_x86_64": "libwasmvm.x86_64.so",
+        "linux_aarch64": "libwasmvm.aarch64.so",
+        "linux_arm64": "libwasmvm.aarch64.so",
+    }
     
     def initialize(self, version, build_data):
         """
@@ -70,7 +92,7 @@ class InjectivedBuildHook(BuildHookInterface):
             return
         
         # Source binary path (from dist/binaries or similar)
-        source_binary = self._find_source_binary(binary_name)
+        source_binary = self._find_source_asset(binary_name)
         if not source_binary:
             self.app.display_warning(
                 f"Binary not found for platform {target_platform} ({binary_name}). "
@@ -84,14 +106,31 @@ class InjectivedBuildHook(BuildHookInterface):
         bin_dir.mkdir(parents=True, exist_ok=True)
         
         # Copy the binary
-        dest_binary = bin_dir / ("injectived.exe" if "windows" in binary_name else "injectived")
+        dest_binary = bin_dir / binary_name
         shutil.copy2(source_binary, dest_binary)
         
         # Make executable on Unix
         if os.name != "nt":
             os.chmod(dest_binary, 0o755)
-        
+            link_path = bin_dir / "injectived"
+            if link_path.exists() or link_path.is_symlink():
+                link_path.unlink()
+            os.symlink(dest_binary.name, link_path)
+
         self.app.display_info(f"Included binary for {target_platform}: {binary_name}")
+
+        lib_name = self.PLATFORM_LIBS.get(target_platform)
+        if lib_name:
+            source_lib = self._find_source_asset(lib_name)
+            if source_lib:
+                dest_lib = bin_dir / lib_name
+                shutil.copy2(source_lib, dest_lib)
+                self.app.display_info(f"Included wasmvm library for {target_platform}: {lib_name}")
+            else:
+                self.app.display_warning(
+                    f"Wasmvm library not found for platform {target_platform} ({lib_name}). "
+                    "Make sure the library is available in dist/binaries/"
+                )
         
         # Set the platform tag for the wheel
         build_data["tag"] = f"py3-none-{target_platform}"
@@ -117,12 +156,12 @@ class InjectivedBuildHook(BuildHookInterface):
         
         return ""
     
-    def _find_source_binary(self, binary_name: str) -> Path | None:
-        """Find the source binary in the expected locations."""
+    def _find_source_asset(self, asset_name: str) -> Path | None:
+        """Find the source asset in the expected locations."""
         search_paths = [
-            Path(self.root) / ".." / ".." / "binaries" / binary_name,
-            Path(self.root) / "binaries" / binary_name,
-            Path(self.root) / ".." / "binaries" / binary_name,
+            Path(self.root) / ".." / ".." / "binaries" / asset_name,
+            Path(self.root) / "binaries" / asset_name,
+            Path(self.root) / ".." / "binaries" / asset_name,
         ]
         
         for path in search_paths:

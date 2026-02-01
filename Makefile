@@ -8,6 +8,8 @@ PEGGO_VERSION_PKG = github.com/InjectiveLabs/injective-core/peggo/orchestrator/v
 IMAGE_NAME := injectivelabs/injective-core
 GOPROXY ?= https://goproxy.injective.dev,direct
 LEDGER_ENABLED ?= true
+RELEASE_BIN_DIR ?= $(CURDIR)/packaging/binaries
+RELEASE_TMP_DIR ?= $(CURDIR)/.release
 
 ifeq ($(DO_COVERAGE),true)
 coverage_flags_injectived = -coverpkg=`cat pkgs-injectived.txt`
@@ -110,11 +112,40 @@ install-ci:
 	@rm pkgs-injectived.txt pkgs-peggo.txt
 
 .PHONY: init install install-ci install-injectived install-peggo
+.PHONY: release-binary release-binary-darwin-arm64 release-binary-linux-arm64 release-binary-linux-x64
 .PHONY: image push gen lint lint-last-commit test mock cover
 
 mock: tests/mocks.go
 	go install github.com/golang/mock/mockgen@latest
 	go generate ./tests/...
+
+###############################################################################
+###                             release binaries                            ###
+###############################################################################
+release-binary:
+	@if [ -z "$(PLATFORM)" ] || [ -z "$(GOOS)" ] || [ -z "$(GOARCH)" ] || [ -z "$(WASMVM_LIB)" ]; then \
+		echo "Usage: make release-binary PLATFORM=<name> GOOS=<os> GOARCH=<arch> WASMVM_LIB=<lib>"; \
+		exit 1; \
+	fi
+	@echo "Building injectived for $(PLATFORM) using install-ci..."
+	@rm -rf "$(RELEASE_TMP_DIR)/$(PLATFORM)"
+	@mkdir -p "$(RELEASE_BIN_DIR)" "$(RELEASE_TMP_DIR)/$(PLATFORM)"
+	@GOBIN="$(RELEASE_TMP_DIR)/$(PLATFORM)" GOOS="$(GOOS)" GOARCH="$(GOARCH)" CGO_ENABLED=1 $(MAKE) install-ci
+	@cp "$(RELEASE_TMP_DIR)/$(PLATFORM)/injectived" "$(RELEASE_BIN_DIR)/injectived-$(PLATFORM)"
+	@chmod +x "$(RELEASE_BIN_DIR)/injectived-$(PLATFORM)"
+	@WASMVM_DIR=$$(go list -m -f '{{.Dir}}' github.com/CosmWasm/wasmvm/v2); \
+		cp "$$WASMVM_DIR/internal/api/$(WASMVM_LIB)" "$(RELEASE_BIN_DIR)/$(WASMVM_LIB)"
+	@rm -rf "$(RELEASE_TMP_DIR)/$(PLATFORM)"
+	@echo "Wrote $(RELEASE_BIN_DIR)/injectived-$(PLATFORM) and $(RELEASE_BIN_DIR)/$(WASMVM_LIB)"
+
+release-binary-darwin-arm64:
+	@$(MAKE) release-binary PLATFORM=darwin-arm64 GOOS=darwin GOARCH=arm64 WASMVM_LIB=libwasmvm.dylib
+
+release-binary-linux-arm64:
+	@$(MAKE) release-binary PLATFORM=linux-arm64 GOOS=linux GOARCH=arm64 WASMVM_LIB=libwasmvm.aarch64.so
+
+release-binary-linux-x64:
+	@$(MAKE) release-binary PLATFORM=linux-x64 GOOS=linux GOARCH=amd64 WASMVM_LIB=libwasmvm.x86_64.so
 
 PKGS_TO_COVER := $(shell go list ./injective-chain/modules/exchange | paste -sd "," -)
 

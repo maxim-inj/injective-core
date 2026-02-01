@@ -30,23 +30,28 @@ jobs:
       matrix:
         platform:
           - name: darwin-arm64
-            os: macos-14
+            os: macos-latest
             goos: darwin
             goarch: arm64
+            wasmvm_lib: libwasmvm.dylib
           - name: linux-arm64
-            os: ubuntu-22.04
+            os: ubuntu-22.04-arm64
             goarch: arm64
             goos: linux
+            wasmvm_lib: libwasmvm.aarch64.so
           - name: linux-x64
             os: ubuntu-22.04
             goos: linux
             goarch: amd64
+            wasmvm_lib: libwasmvm.x86_64.so
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.inputs.tag }}
+          fetch-depth: 0
+          fetch-tags: true
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -54,41 +59,16 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
 
       - name: Build binary
-        env:
-          GOOS: ${{ matrix.platform.goos }}
-          GOARCH: ${{ matrix.platform.goarch }}
-          CGO_ENABLED: 1
         run: |
-          mkdir -p packaging/binaries
-          VERSION="${{ github.event.inputs.tag }}"
-          VERSION=${VERSION#v}
-          GIT_COMMIT=$(git rev-parse --short HEAD)
-          
-          VERSION_FLAGS="-X github.com/InjectiveLabs/injective-core/version.AppVersion=${{ github.event.inputs.tag }} \
-            -X github.com/InjectiveLabs/injective-core/version.GitCommit=${GIT_COMMIT} \
-            -X github.com/cosmos/cosmos-sdk/version.Version=${{ github.event.inputs.tag }}"
-          
-          if [ "${{ matrix.platform.goos }}" = "linux" ] && [ "${{ matrix.platform.goarch }}" = "arm64" ]; then
-            sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
-            CC=aarch64-linux-gnu-gcc CGO_ENABLED=1 go build \
-              -tags "netgo,ledger" \
-              -ldflags "${VERSION_FLAGS} -extldflags '-static'" \
-              -o packaging/binaries/injectived-${{ matrix.platform.name }} \
-              ./cmd/injectived
-          else
-            go build \
-              -tags "netgo,ledger" \
-              -ldflags "${VERSION_FLAGS}" \
-              -o packaging/binaries/injectived-${{ matrix.platform.name }} \
-              ./cmd/injectived
-          fi
-          chmod +x packaging/binaries/injectived-${{ matrix.platform.name }}
+          make release-binary-${{ matrix.platform.name }}
 
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
           name: binary-${{ matrix.platform.name }}
-          path: packaging/binaries/injectived-${{ matrix.platform.name }}
+          path: |
+            packaging/binaries/injectived-${{ matrix.platform.name }}
+            packaging/binaries/${{ matrix.platform.wasmvm_lib }}
           retention-days: 1
 
   # =============================================================================
@@ -150,7 +130,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: npm-${{ matrix.platform }}
-          path: packaging/output/npm/injective-core-${{ matrix.platform }}
+          path: packaging/output/npm/injective-cli-${{ matrix.platform }}
           retention-days: 1
 
   # =============================================================================
@@ -183,17 +163,17 @@ jobs:
             .
           
           # Extract the compiled package
-          mkdir -p output/npm/injective-core
-          cp -r output/build/build/npm/injective-core/* output/npm/injective-core/ || \
-            cp -r output/build/npm/injective-core/* output/npm/injective-core/
+          mkdir -p output/npm/injective-cli
+          cp -r output/build/build/npm/injective-core/* output/npm/injective-cli/ || \
+            cp -r output/build/npm/injective-core/* output/npm/injective-cli/
           
-          ls -la output/npm/injective-core/
+          ls -la output/npm/injective-cli/
 
       - name: Upload base package
         uses: actions/upload-artifact@v4
         with:
           name: npm-base
-          path: packaging/output/npm/injective-core
+          path: packaging/output/npm/injective-cli
           retention-days: 1
 
   # =============================================================================
@@ -280,7 +260,7 @@ jobs:
       - name: Organize packages
         run: |
           mkdir -p output/npm
-          mv npm-packages/npm-base/* output/npm/injective-core/
+          mv npm-packages/npm-base/* output/npm/injective-cli/
           for dir in npm-packages/npm-*; do
             if [ -d "$dir" ]; then
               mv "$dir"/* output/npm/
@@ -292,7 +272,7 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          for dir in output/npm/injective-core-*; do
+          for dir in output/npm/injective-cli-*; do
             if [ -d "$dir" ]; then
               echo "Publishing $(basename $dir)..."
               cd "$dir"
@@ -306,7 +286,7 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           sleep 10
-          cd output/npm/injective-core
+          cd output/npm/injective-cli
           npm publish --access public
 
   # =============================================================================

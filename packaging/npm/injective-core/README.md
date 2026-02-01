@@ -1,17 +1,17 @@
-# Injective Core
+# Injective CLI
 
 NPM package wrapper for the Injective blockchain node binary (`injectived`).
 
 ## Installation
 
 ```bash
-npm install -g injective-core
+npm install -g injective-cli
 ```
 
 Or use with npx (no installation required):
 
 ```bash
-npx injective-core --help
+npx -p injective-cli injectived --help
 ```
 
 ## Supported Platforms
@@ -38,9 +38,9 @@ This package uses platform-specific optional dependencies to download the correc
 
 If you need to depend on a specific platform version:
 
-- `injective-core-darwin-arm64`
-- `injective-core-linux-arm64`
-- `injective-core-linux-x64`
+- `injective-cli-darwin-arm64`
+- `injective-cli-linux-arm64`
+- `injective-cli-linux-x64`
 
 ## License
 

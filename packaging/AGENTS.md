@@ -28,7 +28,7 @@ packaging/
 ├── binaries/                 # Pre-built binaries (input to builds)
 ├── npm/
 │   ├── package.json.tmpl     # Template for platform-specific packages
-│   └── injective-core/       # Base NPM package (TypeScript wrapper)
+│   └── injective-core/       # Base NPM package (injective-cli wrapper)
 │       ├── package.json
 │       ├── tsconfig.json
 │       ├── src/
@@ -38,7 +38,7 @@ packaging/
 │       ├── README.md
 │       └── LICENSE
 └── pypi/
-    └── injective-core/       # PyPI package
+    └── injective-core/       # PyPI package (injective-cli)
         ├── pyproject.toml
         ├── hatch_build.py    # Custom build hook for platform wheels
         ├── src/
@@ -71,20 +71,20 @@ The NPM package uses a **dual strategy** to deliver the correct binary:
 
 ### Package Structure
 
-- **Base Package**: `injective-core` - Contains TypeScript wrapper code
+- **Base Package**: `injective-cli` - Contains TypeScript wrapper code
 - **Platform Packages**:
-  - `injective-core-darwin-arm64`
-  - `injective-core-linux-arm64`
-  - `injective-core-linux-x64`
+  - `injective-cli-darwin-arm64`
+  - `injective-cli-linux-arm64`
+  - `injective-cli-linux-x64`
 
 ### Installation
 
 ```bash
 # Global installation
-npm install -g injective-core
+npm install -g injective-cli
 
 # Or use with npx (no installation)
-npx injective-core@latest --help
+npx -p injective-cli injectived --help
 ```
 
 ### Key Files
@@ -113,7 +113,7 @@ The PyPI package uses **platform-specific wheels** (PEP 425):
 ### Installation
 
 ```bash
-pip install injective-core
+pip install injective-cli
 ```
 
 ### Key Files
@@ -132,7 +132,10 @@ Place pre-built binaries in `binaries/`:
 binaries/
 ├── injectived-darwin-arm64
 ├── injectived-linux-arm64
-└── injectived-linux-x64
+├── injectived-linux-x64
+├── libwasmvm.dylib
+├── libwasmvm.aarch64.so
+└── libwasmvm.x86_64.so
 ```
 
 ### Building All Packages
@@ -147,10 +150,10 @@ Output will be in `output/`:
 ```
 output/
 ├── npm/
-│   ├── injective-core/              # Base package
-│   ├── injective-core-darwin-arm64/ # Platform package
-│   ├── injective-core-linux-arm64/  # Platform package
-│   └── injective-core-linux-x64/    # Platform package
+│   ├── injective-cli/              # Base package
+│   ├── injective-cli-darwin-arm64/ # Platform package
+│   ├── injective-cli-linux-arm64/  # Platform package
+│   └── injective-cli-linux-x64/    # Platform package
 └── pypi/
     ├── injective_core-*.whl         # Platform wheels
     └── injective_core-*.tar.gz      # Source distribution
@@ -283,9 +286,9 @@ Configure these in GitHub repository settings:
 
 | Platform | NPM os | NPM cpu | Package Name |
 |----------|--------|---------|--------------|
-| macOS ARM64 | `darwin` | `arm64` | `injective-core-darwin-arm64` |
-| Linux ARM64 | `linux` | `arm64` | `injective-core-linux-arm64` |
-| Linux x64 | `linux` | `x64` | `injective-core-linux-x64` |
+| macOS ARM64 | `darwin` | `arm64` | `injective-cli-darwin-arm64` |
+| Linux ARM64 | `linux` | `arm64` | `injective-cli-linux-arm64` |
+| Linux x64 | `linux` | `x64` | `injective-cli-linux-x64` |
 
 ### PyPI Platform Mapping
 
@@ -326,10 +329,10 @@ If the base package can't find the binary:
 
 ```bash
 # Check if platform package is installed
-npm list -g injective-core-darwin-arm64  # (adjust for your platform)
+npm list -g injective-cli-darwin-arm64  # (adjust for your platform)
 
 # Reinstall with optional dependencies
-npm install -g injective-core --no-save
+npm install -g injective-cli --no-save
 ```
 
 ### PyPI: "No matching distribution"
@@ -341,7 +344,7 @@ If pip can't find a wheel:
 pip debug --verbose | grep compatible
 
 # Install from source (fallback)
-pip install --no-binary injective-core injective-core
+pip install --no-binary injective-cli injective-cli
 ```
 
 ### Build Issues

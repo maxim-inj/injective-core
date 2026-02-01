@@ -36,6 +36,9 @@
 /npm/injective-core-darwin-*/
 /npm/injective-core-linux-*/
 /npm/injective-core-windows-*/
+/npm/injective-cli-darwin-*/
+/npm/injective-cli-linux-*/
+/npm/injective-cli-windows-*/
 
 # -----------------------------------------------------------------------------
 # PyPI Package Build Artifacts
@@ -61,6 +64,8 @@
 # Binary files copied during build
 /pypi/**/src/injective_core/bin/injectived
 /pypi/**/src/injective_core/bin/injectived.exe
+/pypi/**/src/injective_core/bin/injectived-*
+/pypi/**/src/injective_core/bin/libwasmvm.*
 
 # -----------------------------------------------------------------------------
 # Docker Build Artifacts

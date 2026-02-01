@@ -1,7 +1,7 @@
 {
-  "name": "injective-core",
+  "name": "injective-cli",
   "version": "1.17.2",
-  "description": "Injective Core - Injective Protocol blockchain node binary (injectived)",
+  "description": "Injective CLI - Injective Protocol blockchain node binary (injectived)",
   "main": "lib/index.js",
   "bin": {
     "injectived": "lib/index.js"
@@ -33,10 +33,13 @@
     "@types/node": "^20.0.0",
     "typescript": "^5.0.0"
   },
+  "dependencies": {
+    "adm-zip": "^0.5.10"
+  },
   "optionalDependencies": {
-    "injective-core-darwin-arm64": "1.17.2",
-    "injective-core-linux-arm64": "1.17.2",
-    "injective-core-linux-x64": "1.17.2"
+    "injective-cli-darwin-arm64": "1.17.2",
+    "injective-cli-linux-arm64": "1.17.2",
+    "injective-cli-linux-x64": "1.17.2"
   },
   "files": [
     "lib/**/*",

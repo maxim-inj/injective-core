@@ -3,9 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "injective-core"
+name = "injective-cli"
 version = "1.17.2"
-description = "Injective Core - Injective blockchain node binary (injectived)"
+description = "Injective CLI - Injective blockchain node binary (injectived)"
 readme = "README.md"
 requires-python = ">=3.9"
 license = "BSL-1.1"

@@ -1,17 +1,17 @@
-# Injective Core
+# Injective CLI
 
 Python package wrapper for the Injective blockchain node binary (`injectived`).
 
 ## Installation
 
 ```bash
-pip install injective-core
+pip install injective-cli
 ```
 
 Or use with uvx (no installation required):
 
 ```bash
-uvx injective-core --help
+uvx --from injective-cli injectived --help
 ```
 
 ## Supported Platforms
@@ -44,6 +44,8 @@ print(f"Binary located at: {binary_path}")
 # Run the binary with arguments
 run_binary(["--help"])
 ```
+
+Note: the import path remains `injective_core` even though the package name is `injective-cli`.
 
 ## How It Works
 
