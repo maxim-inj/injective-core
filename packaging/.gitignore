@@ -1,0 +1,148 @@
+# =============================================================================
+# Gitignore for Injective Core Distribution Packages
+# =============================================================================
+# This file ensures only source files are tracked, while build artifacts
+# and generated files are ignored.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Build Output Directories
+# -----------------------------------------------------------------------------
+# Main output directory for built packages
+/output/
+/output-*/
+
+# Binary directory - binaries should be built or downloaded separately
+/binaries/
+/bin/
+
+# -----------------------------------------------------------------------------
+# NPM Package Build Artifacts
+# -----------------------------------------------------------------------------
+# Compiled JavaScript output
+/npm/injective-core/lib/
+
+# Node modules - dependencies are installed during build
+/npm/injective-core/node_modules/
+/npm/**/node_modules/
+
+# NPM package generated files
+/npm/**/package-lock.json
+/npm/**/npm-debug.log*
+/npm/**/yarn-error.log*
+/npm/**/.npm/
+
+# Platform-specific package directories (generated during build)
+/npm/injective-core-darwin-*/
+/npm/injective-core-linux-*/
+/npm/injective-core-windows-*/
+/npm/injective-core-darwin-*/
+/npm/injective-core-linux-*/
+/npm/injective-core-windows-*/
+
+# -----------------------------------------------------------------------------
+# PyPI Package Build Artifacts
+# -----------------------------------------------------------------------------
+# Python build output
+/pypi/**/build/
+# Note: We don't ignore /pypi/**/dist/ here because 'dist' is our directory name
+/pypi/**/src/**/*.egg-info/
+/pypi/**/*.egg-info/
+
+# Compiled Python files
+/pypi/**/*.pyc
+/pypi/**/__pycache__/
+/pypi/**/.pytest_cache/
+/pypi/**/.mypy_cache/
+/pypi/**/.ruff_cache/
+
+# Virtual environments (if created locally)
+/pypi/**/.venv/
+/pypi/**/venv/
+/pypi/**/env/
+
+# Binary files copied during build
+/pypi/**/src/injective_core/bin/injectived
+/pypi/**/src/injective_core/bin/injectived.exe
+/pypi/**/src/injective_core/bin/injectived-*
+/pypi/**/src/injective_core/bin/libwasmvm.*
+
+# -----------------------------------------------------------------------------
+# Docker Build Artifacts
+# -----------------------------------------------------------------------------
+# Docker layer caches
+.dockerignore
+
+# -----------------------------------------------------------------------------
+# IDE and Editor Files
+# -----------------------------------------------------------------------------
+# VS Code
+.vscode/
+*.code-workspace
+
+# IntelliJ / PyCharm / WebStorm
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# Vim
+*.swp
+*.swo
+*~
+
+# Emacs
+*~
+#*#
+.#*
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# -----------------------------------------------------------------------------
+# Temporary Files
+# -----------------------------------------------------------------------------
+*.tmp
+*.temp
+*.log
+*.pid
+*.seed
+*.pid.lock
+
+# -----------------------------------------------------------------------------
+# Environment and Secrets
+# -----------------------------------------------------------------------------
+# Environment files (should never be committed)
+.env
+.env.local
+.env.*.local
+
+# NPM token / PyPI token files
+.npmrc
+.pypirc
+
+# -----------------------------------------------------------------------------
+# Test Coverage and Reports
+# -----------------------------------------------------------------------------
+/coverage/
+*.lcov
+.nyc_output/
+htmlcov/
+
+# -----------------------------------------------------------------------------
+# Local Development Tools
+# -----------------------------------------------------------------------------
+# Local Makefile overrides
+Makefile.local
+makefile.local
+
+# Local configuration
+config.local.yaml
+config.local.json

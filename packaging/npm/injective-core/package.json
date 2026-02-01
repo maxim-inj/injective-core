@@ -1,0 +1,51 @@
+{
+  "name": "injective-core",
+  "version": "1.17.2-build3",
+  "description": "Injective Core - Injective Protocol blockchain node binary (injectived)",
+  "main": "lib/index.js",
+  "bin": {
+    "injectived": "lib/index.js",
+    "injective-core": "lib/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "postinstall": "node lib/install.js || true",
+    "prepare": "npm run build"
+  },
+  "keywords": [
+    "injective",
+    "blockchain",
+    "cosmos",
+    "defi",
+    "validator",
+    "node"
+  ],
+  "author": "Injective Labs",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/InjectiveFoundation/injective-core.git"
+  },
+  "bugs": {
+    "url": "https://github.com/InjectiveFoundation/injective-core/issues"
+  },
+  "homepage": "https://github.com/InjectiveFoundation/injective-core#readme",
+  "devDependencies": {
+    "@types/node": "^25.2.0",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "adm-zip": "^0.5.16",
+    "tar": "^7.5.7"
+  },
+  "optionalDependencies": {
+    "injective-core-darwin-arm64": "1.17.2-build3",
+    "injective-core-linux-arm64": "1.17.2-build3",
+    "injective-core-linux-x64": "1.17.2-build3"
+  },
+  "files": [
+    "lib/**/*",
+    "README.md",
+    "LICENSE"
+  ]
+}

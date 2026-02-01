@@ -5,29 +5,29 @@ title: How to Launch Permissioned Assets
 
 # How to Launch Permissioned Assets
 
-Permissioned assets can be launched using [Injective APIs/SDKs](https://api.injective.exchange/#permissions) or the Injective CLI, `injectived`. See https://docs.injective.network/toolkits/injectived for more information on using the Injective CLI.
+Permissioned assets can be launched using [Injective APIs/SDKs](https://api.injective.exchange/#permissions) or the Injective Core, `injectived`. See <https://docs.injective.network/toolkits/injectived> for more information on using the Injective Core.
 
 ```bash
 injectived tx permissions [command]
 ```
 
 - There are four transaction commands available through the CLI:
-    - `create-namespace`
-        - Used to create a permissioned namespace from a json file for a `TokenFactory` denom
-        - When creating a namespace, the address must be the admin of the same `TokenFactory` denom. Otherwise the namespace cannot be launched
-    - `update-namespace`
-        - Used to update the namespace parameters including:
-            - Contract hook
-            - Role permissions
-            - Role managers
-            - Policy statuses
-            - Policy managers
-        - Namespace updates are incremental, so unless a change is explicitly stated in the JSON, existing state will be untouched
-    - `update-namespace-roles`
-        - Used to assign roles to addresses and revoke roles from addresses
-        - Like with namespace updates, role updates are also incremental
-    - `claim-voucher`
-        - Mainly used when a user is not authorized to receive a permissioned asset but is sent funds from an Injective module. The funds will be held in an Injective module address until the user receives the correct permissions to receive the asset
+  - `create-namespace`
+    - Used to create a permissioned namespace from a json file for a `TokenFactory` denom
+    - When creating a namespace, the address must be the admin of the same `TokenFactory` denom. Otherwise the namespace cannot be launched
+  - `update-namespace`
+    - Used to update the namespace parameters including:
+      - Contract hook
+      - Role permissions
+      - Role managers
+      - Policy statuses
+      - Policy managers
+    - Namespace updates are incremental, so unless a change is explicitly stated in the JSON, existing state will be untouched
+  - `update-namespace-roles`
+    - Used to assign roles to addresses and revoke roles from addresses
+    - Like with namespace updates, role updates are also incremental
+  - `claim-voucher`
+    - Mainly used when a user is not authorized to receive a permissioned asset but is sent funds from an Injective module. The funds will be held in an Injective module address until the user receives the correct permissions to receive the asset
 
 ## `create-namespace`
 

@@ -1,0 +1,57 @@
+[build-system]
+requires = ["hatchling", "zstandard"]
+build-backend = "hatchling.build"
+
+[project]
+name = "injective-core"
+version = "1.17.2.post3"
+description = "Injective Core - Injective blockchain node binary (injectived)"
+readme = "README.md"
+requires-python = ">=3.9"
+license = "BUSL-1.1"
+authors = [{ name = "Injective Labs", email = "maxim@injectivelabs.org" }]
+keywords = [
+    "injective",
+    "blockchain",
+    "cosmos",
+    "defi",
+    "validator",
+    "node",
+    "injectived",
+]
+classifiers = [
+    "Intended Audience :: Developers",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+dependencies = ["zstandard>=0.22.0"]
+
+[project.scripts]
+injectived = "injective_core.cli:main"
+injective-core = "injective_core.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/InjectiveFoundation/injective-core"
+Repository = "https://github.com/InjectiveFoundation/injective-core"
+Documentation = "https://docs.injective.network"
+"Bug Tracker" = "https://github.com/InjectiveFoundation/injective-core/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/injective_core"]
+
+[tool.hatch.build.targets.sdist]
+include = ["/src/injective_core", "/README.md", "/LICENSE"]
+
+[tool.hatch.build.hooks.custom]
+path = "hatch_build.py"
+
+# Platform-specific wheel configuration
+# These are set during the build process via environment variables
+[tool.hatch.build.targets.wheel.options]
+plat-name = "any"
