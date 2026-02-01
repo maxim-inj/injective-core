@@ -1,0 +1,348 @@
+name: Publish NPM and PyPI Packages (Parallel)
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g., v1.17.2)'
+        required: true
+        type: string
+      dry_run:
+        description: 'Dry run (do not actually publish)'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  GO_VERSION: "1.23.9"
+  NODE_VERSION: "20"
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  # =============================================================================
+  # Build binaries (matrix)
+  # =============================================================================
+  build-binaries:
+    name: Build Binary (${{ matrix.platform.name }})
+    runs-on: ${{ matrix.platform.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - name: darwin-arm64
+            os: macos-14
+            goos: darwin
+            goarch: arm64
+          - name: linux-arm64
+            os: ubuntu-22.04
+            goarch: arm64
+            goos: linux
+          - name: linux-x64
+            os: ubuntu-22.04
+            goos: linux
+            goarch: amd64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag }}
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Build binary
+        env:
+          GOOS: ${{ matrix.platform.goos }}
+          GOARCH: ${{ matrix.platform.goarch }}
+          CGO_ENABLED: 1
+        run: |
+          mkdir -p dist/binaries
+          VERSION="${{ github.event.inputs.tag }}"
+          VERSION=${VERSION#v}
+          GIT_COMMIT=$(git rev-parse --short HEAD)
+          
+          VERSION_FLAGS="-X github.com/InjectiveLabs/injective-core/version.AppVersion=${{ github.event.inputs.tag }} \
+            -X github.com/InjectiveLabs/injective-core/version.GitCommit=${GIT_COMMIT} \
+            -X github.com/cosmos/cosmos-sdk/version.Version=${{ github.event.inputs.tag }}"
+          
+          if [ "${{ matrix.platform.goos }}" = "linux" ] && [ "${{ matrix.platform.goarch }}" = "arm64" ]; then
+            sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
+            CC=aarch64-linux-gnu-gcc CGO_ENABLED=1 go build \
+              -tags "netgo,ledger" \
+              -ldflags "${VERSION_FLAGS} -extldflags '-static'" \
+              -o dist/binaries/injectived-${{ matrix.platform.name }} \
+              ./cmd/injectived
+          else
+            go build \
+              -tags "netgo,ledger" \
+              -ldflags "${VERSION_FLAGS}" \
+              -o dist/binaries/injectived-${{ matrix.platform.name }} \
+              ./cmd/injectived
+          fi
+          chmod +x dist/binaries/injectived-${{ matrix.platform.name }}
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: binary-${{ matrix.platform.name }}
+          path: dist/binaries/injectived-${{ matrix.platform.name }}
+          retention-days: 1
+
+  # =============================================================================
+  # Build NPM packages (parallel per platform)
+  # =============================================================================
+  build-npm-platform:
+    name: Build NPM ${{ matrix.platform }}
+    needs: build-binaries
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [darwin-arm64, linux-arm64, linux-x64]
+        include:
+          - platform: darwin-arm64
+            node_os: darwin
+            node_arch: arm64
+          - platform: linux-arm64
+            node_os: linux
+            node_arch: arm64
+          - platform: linux-x64
+            node_os: linux
+            node_arch: x64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag }}
+
+      - name: Download binary
+        uses: actions/download-artifact@v4
+        with:
+          name: binary-${{ matrix.platform }}
+          path: dist/binaries
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build NPM package
+        working-directory: dist
+        run: |
+          VERSION_NO_V="${{ github.event.inputs.tag }}"
+          VERSION_NO_V="${VERSION_NO_V#v}"
+          
+          docker buildx build \
+            --file Dockerfile \
+            --target npm-output \
+            --output type=local,dest=./output \
+            --build-arg PLATFORM="${{ matrix.platform }}" \
+            --build-arg NODE_OS="${{ matrix.node_os }}" \
+            --build-arg NODE_ARCH="${{ matrix.node_arch }}" \
+            --build-arg NODE_VERSION="$VERSION_NO_V" \
+            .
+          
+          ls -la output/npm/
+
+      - name: Upload NPM package
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-${{ matrix.platform }}
+          path: dist/output/npm/injective-core-${{ matrix.platform }}
+          retention-days: 1
+
+  # =============================================================================
+  # Build base NPM package (once)
+  # =============================================================================
+  build-npm-base:
+    name: Build NPM Base Package
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build base package
+        working-directory: dist
+        run: |
+          VERSION_NO_V="${{ github.event.inputs.tag }}"
+          VERSION_NO_V="${VERSION_NO_V#v}"
+          
+          # Build base package only (using npm-builder stage but extract just the package)
+          docker buildx build \
+            --file Dockerfile \
+            --target npm-builder \
+            --output type=local,dest=./output/build \
+            --build-arg VERSION="$VERSION_NO_V" \
+            .
+          
+          # Extract the compiled package
+          mkdir -p output/npm/injective-core
+          cp -r output/build/build/npm/injective-core/* output/npm/injective-core/ || \
+            cp -r output/build/npm/injective-core/* output/npm/injective-core/
+          
+          ls -la output/npm/injective-core/
+
+      - name: Upload base package
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-base
+          path: dist/output/npm/injective-core
+          retention-days: 1
+
+  # =============================================================================
+  # Build PyPI packages (parallel per platform)
+  # =============================================================================
+  build-pypi-platform:
+    name: Build PyPI ${{ matrix.platform }}
+    needs: build-binaries
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [darwin-arm64, linux-arm64, linux-x64]
+        include:
+          - platform: darwin-arm64
+            pypi_platform: macosx_11_0_arm64
+          - platform: linux-arm64
+            pypi_platform: linux_arm64
+          - platform: linux-x64
+            pypi_platform: linux_x86_64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag }}
+
+      - name: Download binary
+        uses: actions/download-artifact@v4
+        with:
+          name: binary-${{ matrix.platform }}
+          path: dist/binaries
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build PyPI wheel
+        working-directory: dist
+        run: |
+          VERSION_NO_V="${{ github.event.inputs.tag }}"
+          VERSION_NO_V="${VERSION_NO_V#v}"
+          
+          docker buildx build \
+            --file Dockerfile \
+            --target pypi-output \
+            --output type=local,dest=./output \
+            --build-arg PLATFORM="${{ matrix.platform }}" \
+            --build-arg PYPI_PLATFORM="${{ matrix.pypi_platform }}" \
+            --build-arg VERSION="$VERSION_NO_V" \
+            .
+          
+          ls -la output/pypi/
+
+      - name: Upload PyPI wheel
+        uses: actions/upload-artifact@v4
+        with:
+          name: pypi-${{ matrix.platform }}
+          path: dist/output/pypi/*.whl
+          retention-days: 1
+          if-no-files-found: error
+
+  # =============================================================================
+  # Collect and publish NPM
+  # =============================================================================
+  publish-npm:
+    name: Publish NPM
+    needs: [build-npm-base, build-npm-platform]
+    runs-on: ubuntu-22.04
+    environment: npm
+    if: ${{ !github.event.inputs.dry_run }}
+    steps:
+      - name: Download all NPM packages
+        uses: actions/download-artifact@v4
+        with:
+          path: npm-packages
+          pattern: npm-*
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Organize packages
+        run: |
+          mkdir -p output/npm
+          mv npm-packages/npm-base/* output/npm/injective-core/
+          for dir in npm-packages/npm-*; do
+            if [ -d "$dir" ]; then
+              mv "$dir"/* output/npm/
+            fi
+          done
+          ls -la output/npm/
+
+      - name: Publish platform packages
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          for dir in output/npm/injective-core-*; do
+            if [ -d "$dir" ]; then
+              echo "Publishing $(basename $dir)..."
+              cd "$dir"
+              npm publish --access public
+              cd -
+            fi
+          done
+
+      - name: Publish base package
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          sleep 10
+          cd output/npm/injective-core
+          npm publish --access public
+
+  # =============================================================================
+  # Collect and publish PyPI
+  # =============================================================================
+  publish-pypi:
+    name: Publish PyPI
+    needs: build-pypi-platform
+    runs-on: ubuntu-22.04
+    environment: pypi
+    if: ${{ !github.event.inputs.dry_run }}
+    steps:
+      - name: Download all PyPI wheels
+        uses: actions/download-artifact@v4
+        with:
+          path: pypi-packages
+          pattern: pypi-*
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install twine
+        run: pip install twine
+
+      - name: Publish to PyPI
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+        run: |
+          mkdir -p dist
+          for dir in pypi-packages/pypi-*; do
+            if [ -d "$dir" ]; then
+              cp "$dir"/* dist/
+            fi
+          done
+          ls -la dist/
+          twine upload dist/*
