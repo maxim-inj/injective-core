@@ -60,7 +60,22 @@ jobs:
 
       - name: Build binary
         run: |
-          make release-binary-${{ matrix.platform.name }}
+          if make -n release-binary-${{ matrix.platform.name }} >/dev/null 2>&1; then
+            make release-binary-${{ matrix.platform.name }}
+            exit 0
+          fi
+
+          echo "release-binary-${{ matrix.platform.name }} target not found, falling back to install-ci"
+          mkdir -p packaging/binaries
+          tmp_dir="packaging/binaries/tmp-${{ matrix.platform.name }}"
+          rm -rf "${tmp_dir}"
+          mkdir -p "${tmp_dir}"
+          GOBIN="$(pwd)/${tmp_dir}" GOOS="${{ matrix.platform.goos }}" GOARCH="${{ matrix.platform.goarch }}" CGO_ENABLED=1 make install-ci
+          cp "${tmp_dir}/injectived" "packaging/binaries/injectived-${{ matrix.platform.name }}"
+          chmod +x "packaging/binaries/injectived-${{ matrix.platform.name }}"
+          wasmvm_dir=$(go list -m -f '{{.Dir}}' github.com/CosmWasm/wasmvm/v2)
+          cp "${wasmvm_dir}/internal/api/${{ matrix.platform.wasmvm_lib }}" "packaging/binaries/${{ matrix.platform.wasmvm_lib }}"
+          rm -rf "${tmp_dir}"
 
       - name: Upload binary
         uses: actions/upload-artifact@v4
@@ -97,7 +112,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.tag }}
+          ref: ${{ github.ref }}
 
       - name: Download binary
         uses: actions/download-artifact@v4
@@ -143,7 +158,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.tag }}
+          ref: ${{ github.ref }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -199,7 +214,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.tag }}
+          ref: ${{ github.ref }}
 
       - name: Download binary
         uses: actions/download-artifact@v4
