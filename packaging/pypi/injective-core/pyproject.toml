@@ -8,7 +8,7 @@ version = "1.17.2"
 description = "Injective CLI - Injective blockchain node binary (injectived)"
 readme = "README.md"
 requires-python = ">=3.9"
-license = "BSL-1.1"
+license = "BUSL-1.1"
 authors = [{ name = "Injective Labs", email = "maxim@injectivelabs.org" }]
 keywords = [
     "injective",

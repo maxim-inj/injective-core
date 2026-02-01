@@ -44,4 +44,4 @@ If you need to depend on a specific platform version:
 
 ## License
 
-BSL-1.1
+BUSL-1.1

@@ -66,4 +66,4 @@ python -m build --wheel
 
 ## License
 
-BSL-1.1
+BUSL-1.1
