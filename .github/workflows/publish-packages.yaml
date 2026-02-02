@@ -7,11 +7,6 @@ on:
         description: 'Release tag (e.g., v1.17.2)'
         required: true
         type: string
-      dry_run:
-        description: 'Dry run (do not actually publish)'
-        required: false
-        default: false
-        type: boolean
 
 env:
   GO_VERSION: "1.23.9"
@@ -258,7 +253,6 @@ jobs:
     needs: [build-npm-base, build-npm-platform]
     runs-on: ubuntu-22.04
     environment: npm
-    if: ${{ !github.event.inputs.dry_run }}
     steps:
       - name: Download all NPM packages
         uses: actions/download-artifact@v4
@@ -312,7 +306,6 @@ jobs:
     needs: build-pypi-platform
     runs-on: ubuntu-22.04
     environment: pypi
-    if: ${{ !github.event.inputs.dry_run }}
     steps:
       - name: Download all PyPI wheels
         uses: actions/download-artifact@v4

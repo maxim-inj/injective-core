@@ -259,10 +259,6 @@ The `.github/workflows/publish-packages.yaml` workflow automates the entire proc
 Via GitHub CLI:
 
 ```bash
-# Dry run (test without publishing)
-gh workflow run publish-packages.yaml -f tag=v1.17.2 -f dry_run=true
-
-# Actual publish
 gh workflow run publish-packages.yaml -f tag=v1.17.2
 ```
 
@@ -271,7 +267,6 @@ Via GitHub Web UI:
 1. Go to Actions → "Publish NPM and PyPI Packages"
 2. Click "Run workflow"
 3. Enter tag (e.g., `v1.17.2`)
-4. Optionally enable dry run
 
 ### Required Secrets
 
