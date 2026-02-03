@@ -8,17 +8,17 @@
 #   - Docker with buildx support (Docker 20.10+)
 #
 # Usage:
-#   make npm-build VERSION=1.17.2    # Build all NPM packages
-#   make pypi-build VERSION=1.17.2   # Build all PyPI packages
-#   make all-build VERSION=1.17.2    # Build all packages
+#   make npm-build VERSION=1.17.2-build.2    # Build all NPM packages
+#   make pypi-build VERSION=1.17.2-build.2   # Build all PyPI packages
+#   make all-build VERSION=1.17.2-build.2    # Build all packages
 #
 # Publishing (requires registry credentials):
-#   make npm-publish NPM_TOKEN=xxx VERSION=1.17.2
-#   make pypi-publish PYPI_TOKEN=xxx VERSION=1.17.2
+#   make npm-publish NPM_TOKEN=xxx VERSION=1.17.2-build.2
+#   make pypi-publish PYPI_TOKEN=xxx VERSION=1.17.2-build.2
 # =============================================================================
 
 # Configuration
-VERSION ?= 1.17.2
+VERSION ?= 1.17.2-build.2
 OUTPUT_DIR ?= $(CURDIR)/output
 BINARIES_DIR ?= $(CURDIR)/binaries
 

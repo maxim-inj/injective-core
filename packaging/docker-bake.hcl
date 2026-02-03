@@ -7,12 +7,12 @@
 //   docker buildx bake --file docker-bake.hcl all-packages
 //
 // Environment Variables:
-//   VERSION - Package version (default: 1.17.2)
+//   VERSION - Package version (default: 1.17.2-build.2)
 //   OUTPUT_DIR - Output directory (default: ./output)
 // =============================================================================
 
 variable "VERSION" {
-    default = "1.17.2"
+    default = "1.17.2-build.2"
 }
 
 variable "OUTPUT_DIR" {
