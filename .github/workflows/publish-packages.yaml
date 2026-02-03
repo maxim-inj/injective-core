@@ -273,25 +273,22 @@ jobs:
             echo "Error: npm-base artifact not found"
             exit 1
           fi
-          base_dir=""
-          if [ -f "npm-packages/npm-base/package.json" ]; then
-            base_dir="npm-packages/npm-base"
-          elif [ -f "npm-packages/npm-base/injective-cli/package.json" ]; then
+          base_dir="npm-packages/npm-base"
+          if [ -d "npm-packages/npm-base/injective-cli" ]; then
             base_dir="npm-packages/npm-base/injective-cli"
-          else
-            base_pkg=$(find npm-packages/npm-base -maxdepth 4 -type f -name package.json -print -quit 2>/dev/null)
-            if [ -n "$base_pkg" ]; then
-              base_dir=$(dirname "$base_pkg")
-            fi
           fi
-          if [ -z "$base_dir" ]; then
-            echo "Error: npm-base artifact missing or empty"
+          if [ -z "$(ls -A "$base_dir" 2>/dev/null)" ]; then
+            echo "Error: npm-base artifact is empty at $base_dir"
+            ls -la npm-packages/npm-base || true
             exit 1
           fi
-          mv "$base_dir"/* output/npm/injective-cli/
+          rsync -a "$base_dir"/ output/npm/injective-cli/
           for dir in npm-packages/npm-*; do
             if [ -d "$dir" ]; then
-              mv "$dir"/* output/npm/
+              if [ "$(basename "$dir")" = "npm-base" ]; then
+                continue
+              fi
+              rsync -a "$dir"/ output/npm/
             fi
           done
           ls -la output/npm/

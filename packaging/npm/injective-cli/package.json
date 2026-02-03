@@ -4,7 +4,8 @@
   "description": "Injective CLI - Injective Protocol blockchain node binary (injectived)",
   "main": "lib/index.js",
   "bin": {
-    "injectived": "lib/index.js"
+    "injectived": "lib/index.js",
+    "injective-cli": "lib/index.js"
   },
   "scripts": {
     "build": "tsc",

@@ -22,10 +22,11 @@ uvx --from injective-cli injectived --help
 
 ## Using injectived
 
-After installation, the `injectived` command is available:
+After installation, the `injectived` and `injective-cli` commands are available:
 
 ```bash
 injectived --help
+injective-cli --help
 injectived init
 injectived start
 ```

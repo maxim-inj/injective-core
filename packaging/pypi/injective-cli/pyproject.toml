@@ -36,6 +36,7 @@ dependencies = [
 
 [project.scripts]
 injectived = "injective_core.cli:main"
+injective-cli = "injective_core.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/InjectiveFoundation/injective-core"
