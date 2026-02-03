@@ -7,6 +7,11 @@ on:
         description: 'Release tag (e.g., v1.17.2)'
         required: true
         type: string
+      set_latest:
+        description: 'Set as latest version on npm'
+        required: false
+        type: boolean
+        default: false
 
 env:
   GO_VERSION: "1.23.9"
@@ -232,9 +237,9 @@ jobs:
           VERSION_NO_V="${{ github.event.inputs.tag }}"
           VERSION_NO_V="${VERSION_NO_V#v}"
           PYPI_VERSION="$VERSION_NO_V"
-          if [[ "$PYPI_VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-build\.([0-9]+)$ ]]; then
+          if [[ "$PYPI_VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-build\.?([0-9]+)$ ]]; then
             PYPI_VERSION="${BASH_REMATCH[1]}.post${BASH_REMATCH[2]}"
-          elif [[ "$PYPI_VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-post\.([0-9]+)$ ]]; then
+          elif [[ "$PYPI_VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-post\.?([0-9]+)$ ]]; then
             PYPI_VERSION="${BASH_REMATCH[1]}.post${BASH_REMATCH[2]}"
           elif [[ "$PYPI_VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+)\.post([0-9]+)$ ]]; then
             PYPI_VERSION="${BASH_REMATCH[1]}.post${BASH_REMATCH[2]}"
@@ -365,6 +370,11 @@ jobs:
               if [ -n "$NPM_TAG" ]; then
                 echo "Ensuring dist-tag ${NPM_TAG} -> ${name}@${version}"
                 npm dist-tag add "${name}@${version}" "$NPM_TAG"
+                tagged=$((tagged + 1))
+              fi
+              if [ "${{ github.event.inputs.set_latest }}" = "true" ]; then
+                echo "Setting dist-tag latest -> ${name}@${version}"
+                npm dist-tag add "${name}@${version}" latest || true
                 tagged=$((tagged + 1))
               fi
             else
