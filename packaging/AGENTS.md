@@ -28,7 +28,7 @@ packaging/
 ├── binaries/                 # Pre-built binaries (input to builds)
 ├── npm/
 │   ├── package.json.tmpl     # Template for platform-specific packages
-│   └── injective-core/       # Base NPM package (injective-cli wrapper)
+│   └── injective-cli/        # Base NPM package (injective-cli wrapper)
 │       ├── package.json
 │       ├── tsconfig.json
 │       ├── src/
@@ -38,7 +38,7 @@ packaging/
 │       ├── README.md
 │       └── LICENSE
 └── pypi/
-    └── injective-core/       # PyPI package (injective-cli)
+    └── injective-cli/        # PyPI package (injective-cli)
         ├── pyproject.toml
         ├── hatch_build.py    # Custom build hook for platform wheels
         ├── src/
@@ -59,7 +59,7 @@ Only **Docker** with Buildx support (Docker 20.10+) is required.
 docker buildx version
 ```
 
-## NPM Package (`npm/injective-core`)
+## NPM Package (`npm/injective-cli`)
 
 ### How It Works
 
@@ -92,7 +92,7 @@ npx -p injective-cli injectived --help
 - `src/index.ts`: Entry point that locates and executes the correct binary
 - `src/install.ts`: Post-install script for fallback binary download
 
-## PyPI Package (`pypi/injective-core`)
+## PyPI Package (`pypi/injective-cli`)
 
 ### How It Works
 

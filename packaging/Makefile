@@ -89,8 +89,8 @@ npm-build-base: ensure-builder check-binaries
 		--build-arg VERSION=$(VERSION) \
 		.
 	@# Copy the base package from the build output
-	@cp -r $(OUTPUT_DIR)/npm-temp/build/npm/injective-core $(OUTPUT_DIR)/npm/injective-cli 2>/dev/null || \
-		cp -r $(OUTPUT_DIR)/npm-temp/npm/injective-core $(OUTPUT_DIR)/npm/injective-cli 2>/dev/null || \
+	@cp -r $(OUTPUT_DIR)/npm-temp/build/npm/injective-cli $(OUTPUT_DIR)/npm/injective-cli 2>/dev/null || \
+		cp -r $(OUTPUT_DIR)/npm-temp/npm/injective-cli $(OUTPUT_DIR)/npm/injective-cli 2>/dev/null || \
 		echo "Note: Base package may be built with platform packages"
 	@rm -rf $(OUTPUT_DIR)/npm-temp
 	@echo "Base NPM package built"

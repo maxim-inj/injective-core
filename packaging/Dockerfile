@@ -20,6 +20,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
     gettext-base \
+    zstd \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
@@ -36,7 +37,7 @@ RUN npm install -g typescript
 COPY npm/ ./npm/
 
 # Build the base package
-WORKDIR /build/npm/injective-core
+WORKDIR /build/npm/injective-cli
 RUN npm ci 2>/dev/null || npm install
 RUN npm run build
 
@@ -60,7 +61,7 @@ ARG NODE_VERSION
 # Note: Expected files must exist - build will fail if not found
 COPY binaries/ /tmp/binaries/
 
-# Create platform-specific package
+# Create platform-specific package (compressed payload)
 RUN set -e; \
     case "${PLATFORM}" in \
       darwin-arm64) wasmvm_lib="libwasmvm.dylib" ;; \
@@ -69,12 +70,16 @@ RUN set -e; \
       *) echo "Unsupported platform: ${PLATFORM}" && exit 1 ;; \
     esac; \
     pkg_dir="/output/npm/injective-cli-${PLATFORM}/bin"; \
-    mkdir -p "$pkg_dir"; \
-    cp /tmp/binaries/injectived-${PLATFORM} "$pkg_dir/injectived-${PLATFORM}"; \
-    cp /tmp/binaries/${wasmvm_lib} "$pkg_dir/${wasmvm_lib}"; \
-    chmod +x "$pkg_dir/injectived-${PLATFORM}"; \
-    ln -sf "injectived-${PLATFORM}" "$pkg_dir/injectived"; \
-    echo "Created NPM package for ${PLATFORM} with ${wasmvm_lib}"
+    work_dir="/tmp/packed-${PLATFORM}"; \
+    mkdir -p "$pkg_dir" "$work_dir"; \
+    cp /tmp/binaries/injectived-${PLATFORM} "$work_dir/injectived-${PLATFORM}"; \
+    cp /tmp/binaries/${wasmvm_lib} "$work_dir/${wasmvm_lib}"; \
+    chmod +x "$work_dir/injectived-${PLATFORM}"; \
+    tar -C "$work_dir" -cf "$work_dir/injective-cli.tar" "injectived-${PLATFORM}" "${wasmvm_lib}"; \
+    zstd --ultra -20 --long=27 -o "$work_dir/injective-cli.tar.zst" "$work_dir/injective-cli.tar"; \
+    cp "$work_dir/injective-cli.tar.zst" "$pkg_dir/injectived.tar.zst"; \
+    rm -rf "$work_dir"; \
+    echo "Created compressed NPM payload for ${PLATFORM} with ${wasmvm_lib}"
 
 # Generate package.json from template
 RUN export node_pkg="injective-cli-${NODE_OS}-${NODE_ARCH}" && \
@@ -84,7 +89,7 @@ RUN export node_pkg="injective-cli-${NODE_OS}-${NODE_ARCH}" && \
     envsubst < /build/npm/package.json.tmpl > /output/npm/injective-cli-${PLATFORM}/package.json
 
 # Copy base package to output
-RUN cp -r /build/npm/injective-core /output/npm/injective-cli && \
+RUN cp -r /build/npm/injective-cli /output/npm/injective-cli && \
     rm -rf /output/npm/injective-cli/node_modules /output/npm/injective-cli/src
 
 # -----------------------------------------------------------------------------
@@ -106,15 +111,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python build tools
-RUN pip install --no-cache-dir build hatchling twine
+RUN pip install --no-cache-dir build hatchling twine zstandard
 
 WORKDIR /build
 
 # Copy PyPI package source
-COPY pypi/injective-core/ ./pypi/injective-core/
+COPY pypi/injective-cli/ ./pypi/injective-cli/
 
 # Set working directory for builds
-WORKDIR /build/pypi/injective-core
+WORKDIR /build/pypi/injective-cli
 
 # -----------------------------------------------------------------------------
 # PyPI Package Assembler Stage
@@ -131,21 +136,7 @@ ARG VERSION
 
 # Copy binaries from build context
 # Note: Expected files must exist - build will fail if not found
-COPY binaries/ /tmp/binaries/
-
-RUN set -e; \
-    case "${PLATFORM}" in \
-      darwin-arm64) wasmvm_lib="libwasmvm.dylib" ;; \
-      linux-arm64) wasmvm_lib="libwasmvm.aarch64.so" ;; \
-      linux-x64) wasmvm_lib="libwasmvm.x86_64.so" ;; \
-      *) echo "Unsupported platform: ${PLATFORM}" && exit 1 ;; \
-    esac; \
-    mkdir -p src/injective_core/bin; \
-    cp /tmp/binaries/injectived-${PLATFORM} src/injective_core/bin/injectived-${PLATFORM}; \
-    cp /tmp/binaries/${wasmvm_lib} src/injective_core/bin/${wasmvm_lib}; \
-    chmod +x src/injective_core/bin/injectived-${PLATFORM}; \
-    ln -sf "injectived-${PLATFORM}" src/injective_core/bin/injectived; \
-    echo "Prepared binary for ${PLATFORM} with ${wasmvm_lib}"
+COPY binaries/ /build/binaries/
 
 # Update version in files
 RUN sed -i "s/version = \"[^\"]*\"/version = \"${VERSION}\"/g" pyproject.toml && \

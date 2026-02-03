@@ -174,8 +174,8 @@ jobs:
           
           # Extract the compiled package
           mkdir -p output/npm/injective-cli
-          cp -r output/build/build/npm/injective-core/* output/npm/injective-cli/ || \
-            cp -r output/build/npm/injective-core/* output/npm/injective-cli/
+          cp -r output/build/build/npm/injective-cli/* output/npm/injective-cli/ || \
+            cp -r output/build/npm/injective-cli/* output/npm/injective-cli/
           
           ls -la output/npm/injective-cli/
 
@@ -268,7 +268,7 @@ jobs:
 
       - name: Organize packages
         run: |
-          mkdir -p output/npm
+          mkdir -p output/npm/injective-cli
           mv npm-packages/npm-base/* output/npm/injective-cli/
           for dir in npm-packages/npm-*; do
             if [ -d "$dir" ]; then

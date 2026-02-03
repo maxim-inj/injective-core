@@ -3,6 +3,10 @@
 import { spawnSync } from "child_process";
 import * as path from "path";
 import * as fs from "fs";
+import * as os from "os";
+
+const tar = require("tar");
+const { ZstdCodec } = require("zstd-codec");
 
 /**
  * Mapping of platform and architecture to npm package names
@@ -14,6 +18,8 @@ const PLATFORM_PACKAGES: Record<string, string> = {
   "win32-x64": "injective-cli-windows-x64",
   "win32-arm64": "injective-cli-windows-arm64",
 };
+
+const PAYLOAD_ARCHIVE = "injectived.tar.zst";
 
 /**
  * Get the binary name based on the platform
@@ -38,9 +44,88 @@ function getPlatformBinaryName(): string | null {
 /**
  * Get the expected npm package name for the current platform
  */
-function getPlatformPackageName(): string {
+function getPlatformPackageName(): string | null {
   const key = `${process.platform}-${process.arch}`;
-  return PLATFORM_PACKAGES[key];
+  return PLATFORM_PACKAGES[key] || null;
+}
+
+function findBinaryInDir(binDir: string): string | null {
+  const binaryPath = path.join(binDir, getBinaryName());
+  if (fs.existsSync(binaryPath)) {
+    return binaryPath;
+  }
+
+  const platformBinaryName = getPlatformBinaryName();
+  if (platformBinaryName) {
+    const platformBinaryPath = path.join(binDir, platformBinaryName);
+    if (fs.existsSync(platformBinaryPath)) {
+      return platformBinaryPath;
+    }
+  }
+
+  return null;
+}
+
+async function decompressPayload(archivePath: string): Promise<Buffer> {
+  const compressed = fs.readFileSync(archivePath);
+
+  return await new Promise((resolve, reject) => {
+    ZstdCodec.run((zstd: { Simple: new () => { decompress: (input: Uint8Array) => Uint8Array } }) => {
+      try {
+        const simple = new zstd.Simple();
+        const decompressed = simple.decompress(compressed);
+        resolve(Buffer.from(decompressed));
+      } catch (err) {
+        reject(err);
+      }
+    });
+  });
+}
+
+async function extractPayload(binDir: string): Promise<void> {
+  const archivePath = path.join(binDir, PAYLOAD_ARCHIVE);
+
+  if (!fs.existsSync(archivePath)) {
+    return;
+  }
+
+  const tarBuffer = await decompressPayload(archivePath);
+  const tmpTarPath = path.join(os.tmpdir(), `injective-cli-${Date.now()}-${Math.random()}.tar`);
+  fs.writeFileSync(tmpTarPath, tarBuffer);
+
+  try {
+    await tar.extract({ file: tmpTarPath, cwd: binDir });
+  } finally {
+    fs.rmSync(tmpTarPath, { force: true });
+  }
+
+  const platformBinaryName = getPlatformBinaryName();
+  if (platformBinaryName) {
+    const platformBinaryPath = path.join(binDir, platformBinaryName);
+    const binaryPath = path.join(binDir, getBinaryName());
+
+    if (fs.existsSync(platformBinaryPath) && process.platform !== "win32") {
+      fs.chmodSync(platformBinaryPath, 0o755);
+    }
+
+    if (!fs.existsSync(binaryPath) && fs.existsSync(platformBinaryPath)) {
+      try {
+        fs.symlinkSync(platformBinaryName, binaryPath);
+      } catch {
+        fs.copyFileSync(platformBinaryPath, binaryPath);
+      }
+    }
+  }
+}
+
+async function ensureBinaryInDir(binDir: string): Promise<string | null> {
+  const existing = findBinaryInDir(binDir);
+  if (existing) {
+    return existing;
+  }
+
+  await extractPayload(binDir);
+  return findBinaryInDir(binDir);
 }
 
 /**
@@ -56,22 +141,26 @@ function findBinaryInOptionalDeps(): string | null {
     // Try to resolve the platform-specific package
     const pkgPath = require.resolve(`${pkgName}/package.json`);
     const pkgDir = path.dirname(pkgPath);
-    const binaryPath = path.join(pkgDir, "bin", getBinaryName());
-    if (fs.existsSync(binaryPath)) {
-      return binaryPath;
-    }
-
-    const platformBinaryName = getPlatformBinaryName();
-    if (platformBinaryName) {
-      const platformBinaryPath = path.join(pkgDir, "bin", platformBinaryName);
-      if (fs.existsSync(platformBinaryPath)) {
-        return platformBinaryPath;
-      }
-    }
+    return findBinaryInDir(path.join(pkgDir, "bin"));
   } catch (e) {
     // Package not found
   }
   return null;
+}
+
+async function ensureBinaryInOptionalDeps(): Promise<string | null> {
+  const pkgName = getPlatformPackageName();
+  if (!pkgName) {
+    return null;
+  }
+
+  try {
+    const pkgPath = require.resolve(`${pkgName}/package.json`);
+    const pkgDir = path.dirname(pkgPath);
+    return await ensureBinaryInDir(path.join(pkgDir, "bin"));
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -79,20 +168,12 @@ function findBinaryInOptionalDeps(): string | null {
  */
 function findBinaryInFallback(): string | null {
   const fallbackDir = path.join(__dirname, "..", "bin");
-  const binaryPath = path.join(fallbackDir, getBinaryName());
-  
-  if (fs.existsSync(binaryPath)) {
-    return binaryPath;
-  }
+  return findBinaryInDir(fallbackDir);
+}
 
-  const platformBinaryName = getPlatformBinaryName();
-  if (platformBinaryName) {
-    const platformBinaryPath = path.join(fallbackDir, platformBinaryName);
-    if (fs.existsSync(platformBinaryPath)) {
-      return platformBinaryPath;
-    }
-  }
-  return null;
+async function ensureBinaryInFallback(): Promise<string | null> {
+  const fallbackDir = path.join(__dirname, "..", "bin");
+  return await ensureBinaryInDir(fallbackDir);
 }
 
 const WASMVM_LIB_NAMES = [
@@ -160,11 +241,24 @@ function getBinaryPath(): string {
   );
 }
 
+async function ensureBinaryAvailable(): Promise<void> {
+  const optionalDepPath = await ensureBinaryInOptionalDeps();
+  if (optionalDepPath) {
+    return;
+  }
+
+  const fallbackPath = await ensureBinaryInFallback();
+  if (fallbackPath) {
+    return;
+  }
+}
+
 /**
  * Run the injectived binary with the provided arguments
  */
-function run(): void {
+async function run(): Promise<void> {
   const args = process.argv.slice(2);
+  await ensureBinaryAvailable();
   const binaryPath = getBinaryPath();
   
   const result = spawnSync(binaryPath, args, { 
@@ -177,7 +271,17 @@ function run(): void {
 
 // Run if called directly
 if (require.main === module) {
-  run();
+  run().catch((err) => {
+    console.error(err instanceof Error ? err.message : err);
+    process.exit(1);
+  });
 }
 
-export { getBinaryPath, findBinaryInOptionalDeps, findBinaryInFallback };
+export {
+  getBinaryPath,
+  findBinaryInOptionalDeps,
+  findBinaryInFallback,
+  ensureBinaryInOptionalDeps,
+  ensureBinaryInFallback,
+  ensureBinaryAvailable,
+};

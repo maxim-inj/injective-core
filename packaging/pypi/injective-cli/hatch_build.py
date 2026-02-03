@@ -6,15 +6,21 @@ based on the target platform.
 """
 
 import os
-import shutil
-import sys
+import tarfile
+import tempfile
 from pathlib import Path
 
+import zstandard as zstd
+
 from hatchling.builders.hooks.plugin.interface import BuildHookInterface
+from typing import Optional
 
 
 class InjectivedBuildHook(BuildHookInterface):
     """Build hook to include platform-specific injectived binary."""
+
+    PAYLOAD_ARCHIVE = "injectived.tar.zst"
+    ZSTD_LEVEL = 20
     
     # Mapping of Python platform tags to binary names
     PLATFORM_BINARIES = {
@@ -104,37 +110,60 @@ class InjectivedBuildHook(BuildHookInterface):
         package_dir = Path(self.root) / "src" / "injective_core"
         bin_dir = package_dir / "bin"
         bin_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Copy the binary
-        dest_binary = bin_dir / binary_name
-        shutil.copy2(source_binary, dest_binary)
-        
-        # Make executable on Unix
-        if os.name != "nt":
-            os.chmod(dest_binary, 0o755)
-            link_path = bin_dir / "injectived"
-            if link_path.exists() or link_path.is_symlink():
-                link_path.unlink()
-            os.symlink(dest_binary.name, link_path)
-
-        self.app.display_info(f"Included binary for {target_platform}: {binary_name}")
 
         lib_name = self.PLATFORM_LIBS.get(target_platform)
+        source_lib = None
         if lib_name:
             source_lib = self._find_source_asset(lib_name)
-            if source_lib:
-                dest_lib = bin_dir / lib_name
-                shutil.copy2(source_lib, dest_lib)
-                self.app.display_info(f"Included wasmvm library for {target_platform}: {lib_name}")
-            else:
+            if not source_lib:
                 self.app.display_warning(
                     f"Wasmvm library not found for platform {target_platform} ({lib_name}). "
                     "Make sure the library is available in dist/binaries/"
                 )
+
+        self._build_payload(
+            bin_dir=bin_dir,
+            binary_name=binary_name,
+            source_binary=source_binary,
+            lib_name=lib_name,
+            source_lib=source_lib,
+        )
+
+        self.app.display_info(f"Included compressed payload for {target_platform}: {binary_name}")
         
         # Set the platform tag for the wheel
         build_data["tag"] = f"py3-none-{target_platform}"
         build_data["pure_python"] = False
+
+    def _build_payload(
+        self,
+        bin_dir: Path,
+        binary_name: str,
+        source_binary: Path,
+        lib_name: Optional[str],
+        source_lib: Optional[Path],
+    ) -> None:
+        tmp_tar_path = None
+        try:
+            with tempfile.NamedTemporaryFile(delete=False) as tmp_tar:
+                tmp_tar_path = Path(tmp_tar.name)
+            with tarfile.open(tmp_tar_path, "w") as tar:
+                tar.add(source_binary, arcname=binary_name)
+                if source_lib and lib_name:
+                    tar.add(source_lib, arcname=lib_name)
+
+            params = zstd.ZstdCompressionParameters.from_level(
+                self.ZSTD_LEVEL,
+                enable_ldm=True,
+                window_log=27,
+            )
+            compressor = zstd.ZstdCompressor(compression_params=params)
+            archive_path = bin_dir / self.PAYLOAD_ARCHIVE
+            with tmp_tar_path.open("rb") as src, archive_path.open("wb") as dst:
+                compressor.copy_stream(src, dst)
+        finally:
+            if tmp_tar_path and tmp_tar_path.exists():
+                tmp_tar_path.unlink()
     
     def _detect_current_platform(self) -> str:
         """Detect the current platform."""
@@ -156,7 +185,7 @@ class InjectivedBuildHook(BuildHookInterface):
         
         return ""
     
-    def _find_source_asset(self, asset_name: str) -> Path | None:
+    def _find_source_asset(self, asset_name: str) -> Optional[Path]:
         """Find the source asset in the expected locations."""
         search_paths = [
             Path(self.root) / ".." / ".." / "binaries" / asset_name,

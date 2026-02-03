@@ -78,6 +78,13 @@ async function main(): Promise<void> {
       console.log("injectived binary found in optional dependencies.");
       process.exit(0);
     }
+    if (typeof indexModule.ensureBinaryInOptionalDeps === "function") {
+      const ensured = await indexModule.ensureBinaryInOptionalDeps();
+      if (ensured) {
+        console.log("injectived binary unpacked from optional dependencies.");
+        process.exit(0);
+      }
+    }
   } catch (e) {
     // Continue with download
   }
