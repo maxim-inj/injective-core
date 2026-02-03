@@ -3,10 +3,10 @@
 import { spawnSync } from "child_process";
 import * as path from "path";
 import * as fs from "fs";
-import * as os from "os";
+import * as zlib from "node:zlib";
+import { pipeline } from "node:stream/promises";
 
 const tar = require("tar");
-const { ZstdCodec } = require("zstd-codec");
 
 /**
  * Mapping of platform and architecture to npm package names
@@ -20,6 +20,18 @@ const PLATFORM_PACKAGES: Record<string, string> = {
 };
 
 const PAYLOAD_ARCHIVE = "injectived.tar.zst";
+
+function isNodeVersionAtLeast(major: number, minor: number, patch: number): boolean {
+  const raw = process.versions.node || "0.0.0";
+  const [maj, min, pat] = raw.split(".").map((part) => Number(part) || 0);
+  if (maj !== major) return maj > major;
+  if (min !== minor) return min > minor;
+  return pat >= patch;
+}
+
+function hasNodeZstdSupport(): boolean {
+  return isNodeVersionAtLeast(23, 8, 0) && typeof zlib.createZstdDecompress === "function";
+}
 
 /**
  * Get the binary name based on the platform
@@ -66,22 +78,6 @@ function findBinaryInDir(binDir: string): string | null {
   return null;
 }
 
-async function decompressPayload(archivePath: string): Promise<Buffer> {
-  const compressed = fs.readFileSync(archivePath);
-
-  return await new Promise((resolve, reject) => {
-    ZstdCodec.run((zstd: { Simple: new () => { decompress: (input: Uint8Array) => Uint8Array } }) => {
-      try {
-        const simple = new zstd.Simple();
-        const decompressed = simple.decompress(compressed);
-        resolve(Buffer.from(decompressed));
-      } catch (err) {
-        reject(err);
-      }
-    });
-  });
-}
-
 async function extractPayload(binDir: string): Promise<void> {
   const archivePath = path.join(binDir, PAYLOAD_ARCHIVE);
 
@@ -89,15 +85,15 @@ async function extractPayload(binDir: string): Promise<void> {
     return;
   }
 
-  const tarBuffer = await decompressPayload(archivePath);
-  const tmpTarPath = path.join(os.tmpdir(), `injective-core-${Date.now()}-${Math.random()}.tar`);
-  fs.writeFileSync(tmpTarPath, tarBuffer);
-
-  try {
-    await tar.extract({ file: tmpTarPath, cwd: binDir });
-  } finally {
-    fs.rmSync(tmpTarPath, { force: true });
+  if (!hasNodeZstdSupport()) {
+    return;
   }
+
+  await pipeline(
+    fs.createReadStream(archivePath),
+    zlib.createZstdDecompress(),
+    tar.x({ cwd: binDir })
+  );
 
   const platformBinaryName = getPlatformBinaryName();
   if (platformBinaryName) {
@@ -231,6 +227,14 @@ function getBinaryPath(): string {
     throw new Error(
       `Unsupported platform: ${process.platform}-${process.arch}. ` +
       `Supported platforms: ${Object.keys(PLATFORM_PACKAGES).join(", ")}`
+    );
+  }
+
+  if (!hasNodeZstdSupport()) {
+    throw new Error(
+      `Could not find injectived binary for ${process.platform}-${process.arch}. ` +
+      `Node.js v23.8.0+ is required to extract ${PAYLOAD_ARCHIVE} (current: v${process.versions.node}). ` +
+      `Reinstall with a newer Node.js or ensure the fallback download succeeds.`
     );
   }
 

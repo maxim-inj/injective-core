@@ -75,9 +75,9 @@ RUN set -e; \
     cp /tmp/binaries/injectived-${PLATFORM} "$work_dir/injectived-${PLATFORM}"; \
     cp /tmp/binaries/${wasmvm_lib} "$work_dir/${wasmvm_lib}"; \
     chmod +x "$work_dir/injectived-${PLATFORM}"; \
-    tar -C "$work_dir" -cf "$work_dir/injective-core.tar" "injectived-${PLATFORM}" "${wasmvm_lib}"; \
-    zstd --ultra -20 --long=27 -o "$work_dir/injective-core.tar.zst" "$work_dir/injective-core.tar"; \
-    cp "$work_dir/injective-core.tar.zst" "$pkg_dir/injectived.tar.zst"; \
+    tar -C "$work_dir" -cf "$work_dir/injectived.tar" "injectived-${PLATFORM}" "${wasmvm_lib}"; \
+    zstd --ultra -20 --long=27 -o "$work_dir/injectived.tar.zst" "$work_dir/injectived.tar"; \
+    cp "$work_dir/injectived.tar.zst" "$pkg_dir/injectived.tar.zst"; \
     rm -rf "$work_dir"; \
     echo "Created compressed NPM payload for ${PLATFORM} with ${wasmvm_lib}"
 

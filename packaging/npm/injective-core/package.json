@@ -36,8 +36,7 @@
   },
   "dependencies": {
     "adm-zip": "^0.5.16",
-    "tar": "^7.5.7",
-    "zstd-codec": "^0.1.5"
+    "tar": "^7.5.7"
   },
   "optionalDependencies": {
     "injective-core-darwin-arm64": "1.17.2",
