@@ -3,9 +3,9 @@ requires = ["hatchling", "zstandard"]
 build-backend = "hatchling.build"
 
 [project]
-name = "injective-cli"
+name = "injective-core"
 version = "1.17.2"
-description = "Injective CLI - Injective blockchain node binary (injectived)"
+description = "Injective Core - Injective blockchain node binary (injectived)"
 readme = "README.md"
 requires-python = ">=3.9"
 license = "BUSL-1.1"
@@ -30,13 +30,11 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
 ]
-dependencies = [
-    "zstandard>=0.22.0",
-]
+dependencies = ["zstandard>=0.22.0"]
 
 [project.scripts]
 injectived = "injective_core.cli:main"
-injective-cli = "injective_core.cli:main"
+injective-core = "injective_core.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/InjectiveFoundation/injective-core"

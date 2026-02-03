@@ -12,11 +12,11 @@ const { ZstdCodec } = require("zstd-codec");
  * Mapping of platform and architecture to npm package names
  */
 const PLATFORM_PACKAGES: Record<string, string> = {
-  "darwin-arm64": "injective-cli-darwin-arm64",
-  "linux-arm64": "injective-cli-linux-arm64",
-  "linux-x64": "injective-cli-linux-x64",
-  "win32-x64": "injective-cli-windows-x64",
-  "win32-arm64": "injective-cli-windows-arm64",
+  "darwin-arm64": "injective-core-darwin-arm64",
+  "linux-arm64": "injective-core-linux-arm64",
+  "linux-x64": "injective-core-linux-x64",
+  "win32-x64": "injective-core-windows-x64",
+  "win32-arm64": "injective-core-windows-arm64",
 };
 
 const PAYLOAD_ARCHIVE = "injectived.tar.zst";
@@ -90,7 +90,7 @@ async function extractPayload(binDir: string): Promise<void> {
   }
 
   const tarBuffer = await decompressPayload(archivePath);
-  const tmpTarPath = path.join(os.tmpdir(), `injective-cli-${Date.now()}-${Math.random()}.tar`);
+  const tmpTarPath = path.join(os.tmpdir(), `injective-core-${Date.now()}-${Math.random()}.tar`);
   fs.writeFileSync(tmpTarPath, tarBuffer);
 
   try {
@@ -237,7 +237,7 @@ function getBinaryPath(): string {
   throw new Error(
     `Could not find injectived binary for ${process.platform}-${process.arch}. ` +
     `Tried to find package "${pkgName}" in optionalDependencies and fallback location. ` +
-    `Please ensure the platform-specific package is installed or try reinstalling injective-cli.`
+    `Please ensure the platform-specific package is installed or try reinstalling injective-core.`
   );
 }
 

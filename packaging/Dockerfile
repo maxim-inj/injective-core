@@ -37,7 +37,7 @@ RUN npm install -g typescript
 COPY npm/ ./npm/
 
 # Build the base package
-WORKDIR /build/npm/injective-cli
+WORKDIR /build/npm/injective-core
 RUN npm ci 2>/dev/null || npm install
 RUN npm run build
 
@@ -64,33 +64,33 @@ COPY binaries/ /tmp/binaries/
 # Create platform-specific package (compressed payload)
 RUN set -e; \
     case "${PLATFORM}" in \
-      darwin-arm64) wasmvm_lib="libwasmvm.dylib" ;; \
-      linux-arm64) wasmvm_lib="libwasmvm.aarch64.so" ;; \
-      linux-x64) wasmvm_lib="libwasmvm.x86_64.so" ;; \
-      *) echo "Unsupported platform: ${PLATFORM}" && exit 1 ;; \
+    darwin-arm64) wasmvm_lib="libwasmvm.dylib" ;; \
+    linux-arm64) wasmvm_lib="libwasmvm.aarch64.so" ;; \
+    linux-x64) wasmvm_lib="libwasmvm.x86_64.so" ;; \
+    *) echo "Unsupported platform: ${PLATFORM}" && exit 1 ;; \
     esac; \
-    pkg_dir="/output/npm/injective-cli-${PLATFORM}/bin"; \
+    pkg_dir="/output/npm/injective-core-${PLATFORM}/bin"; \
     work_dir="/tmp/packed-${PLATFORM}"; \
     mkdir -p "$pkg_dir" "$work_dir"; \
     cp /tmp/binaries/injectived-${PLATFORM} "$work_dir/injectived-${PLATFORM}"; \
     cp /tmp/binaries/${wasmvm_lib} "$work_dir/${wasmvm_lib}"; \
     chmod +x "$work_dir/injectived-${PLATFORM}"; \
-    tar -C "$work_dir" -cf "$work_dir/injective-cli.tar" "injectived-${PLATFORM}" "${wasmvm_lib}"; \
-    zstd --ultra -20 --long=27 -o "$work_dir/injective-cli.tar.zst" "$work_dir/injective-cli.tar"; \
-    cp "$work_dir/injective-cli.tar.zst" "$pkg_dir/injectived.tar.zst"; \
+    tar -C "$work_dir" -cf "$work_dir/injective-core.tar" "injectived-${PLATFORM}" "${wasmvm_lib}"; \
+    zstd --ultra -20 --long=27 -o "$work_dir/injective-core.tar.zst" "$work_dir/injective-core.tar"; \
+    cp "$work_dir/injective-core.tar.zst" "$pkg_dir/injectived.tar.zst"; \
     rm -rf "$work_dir"; \
     echo "Created compressed NPM payload for ${PLATFORM} with ${wasmvm_lib}"
 
 # Generate package.json from template
-RUN export node_pkg="injective-cli-${NODE_OS}-${NODE_ARCH}" && \
+RUN export node_pkg="injective-core-${NODE_OS}-${NODE_ARCH}" && \
     export node_os="${NODE_OS}" && \
     export node_arch="${NODE_ARCH}" && \
     export node_version="${NODE_VERSION}" && \
-    envsubst < /build/npm/package.json.tmpl > /output/npm/injective-cli-${PLATFORM}/package.json
+    envsubst < /build/npm/package.json.tmpl > /output/npm/injective-core-${PLATFORM}/package.json
 
 # Copy base package to output
-RUN cp -r /build/npm/injective-cli /output/npm/injective-cli && \
-    rm -rf /output/npm/injective-cli/node_modules /output/npm/injective-cli/src
+RUN cp -r /build/npm/injective-core /output/npm/injective-core && \
+    rm -rf /output/npm/injective-core/node_modules /output/npm/injective-core/src
 
 # -----------------------------------------------------------------------------
 # NPM Output Stage
@@ -116,10 +116,10 @@ RUN pip install --no-cache-dir build hatchling twine zstandard
 WORKDIR /build
 
 # Copy PyPI package source
-COPY pypi/injective-cli/ ./pypi/injective-cli/
+COPY pypi/injective-core/ ./pypi/injective-core/
 
 # Set working directory for builds
-WORKDIR /build/pypi/injective-cli
+WORKDIR /build/pypi/injective-core
 
 # -----------------------------------------------------------------------------
 # PyPI Package Assembler Stage
@@ -148,11 +148,11 @@ RUN INJECTIVED_PLATFORM="${PYPI_PLATFORM}" python -m build --wheel --no-isolatio
 # Rename wheel to have correct platform tag (hatchling doesn't always set this correctly)
 RUN cd dist && \
     for whl in *.whl; do \
-        if echo "$whl" | grep -q "py3-none-any"; then \
-            newname=$(echo "$whl" | sed "s/py3-none-any/${PYPI_PLATFORM}/"); \
-            mv "$whl" "$newname"; \
-            echo "Renamed $whl to $newname"; \
-        fi; \
+    if echo "$whl" | grep -q "py3-none-any"; then \
+    newname=$(echo "$whl" | sed "s/py3-none-any/${PYPI_PLATFORM}/"); \
+    mv "$whl" "$newname"; \
+    echo "Renamed $whl to $newname"; \
+    fi; \
     done
 
 # Build sdist (only needed once, but we do it for each platform and let the caller pick one)

@@ -28,7 +28,7 @@ packaging/
 ├── binaries/                 # Pre-built binaries (input to builds)
 ├── npm/
 │   ├── package.json.tmpl     # Template for platform-specific packages
-│   └── injective-cli/        # Base NPM package (injective-cli wrapper)
+│   └── injective-core/        # Base NPM package (injective-core wrapper)
 │       ├── package.json
 │       ├── tsconfig.json
 │       ├── src/
@@ -38,7 +38,7 @@ packaging/
 │       ├── README.md
 │       └── LICENSE
 └── pypi/
-    └── injective-cli/        # PyPI package (injective-cli)
+    └── injective-core/        # PyPI package (injective-core)
         ├── pyproject.toml
         ├── hatch_build.py    # Custom build hook for platform wheels
         ├── src/
@@ -59,7 +59,7 @@ Only **Docker** with Buildx support (Docker 20.10+) is required.
 docker buildx version
 ```
 
-## NPM Package (`npm/injective-cli`)
+## NPM Package (`npm/injective-core`)
 
 ### How It Works
 
@@ -71,20 +71,20 @@ The NPM package uses a **dual strategy** to deliver the correct binary:
 
 ### Package Structure
 
-- **Base Package**: `injective-cli` - Contains TypeScript wrapper code
+- **Base Package**: `injective-core` - Contains TypeScript wrapper code
 - **Platform Packages**:
-  - `injective-cli-darwin-arm64`
-  - `injective-cli-linux-arm64`
-  - `injective-cli-linux-x64`
+  - `injective-core-darwin-arm64`
+  - `injective-core-linux-arm64`
+  - `injective-core-linux-x64`
 
 ### Installation
 
 ```bash
 # Global installation
-npm install -g injective-cli
+npm install -g injective-core
 
 # Or use with npx (no installation)
-npx -p injective-cli injectived --help
+npx -p injective-core injectived --help
 ```
 
 ### Key Files
@@ -92,7 +92,7 @@ npx -p injective-cli injectived --help
 - `src/index.ts`: Entry point that locates and executes the correct binary
 - `src/install.ts`: Post-install script for fallback binary download
 
-## PyPI Package (`pypi/injective-cli`)
+## PyPI Package (`pypi/injective-core`)
 
 ### How It Works
 
@@ -113,7 +113,7 @@ The PyPI package uses **platform-specific wheels** (PEP 425):
 ### Installation
 
 ```bash
-pip install injective-cli
+pip install injective-core
 ```
 
 ### Key Files
@@ -150,10 +150,10 @@ Output will be in `output/`:
 ```
 output/
 ├── npm/
-│   ├── injective-cli/              # Base package
-│   ├── injective-cli-darwin-arm64/ # Platform package
-│   ├── injective-cli-linux-arm64/  # Platform package
-│   └── injective-cli-linux-x64/    # Platform package
+│   ├── injective-core/              # Base package
+│   ├── injective-core-darwin-arm64/ # Platform package
+│   ├── injective-core-linux-arm64/  # Platform package
+│   └── injective-core-linux-x64/    # Platform package
 └── pypi/
     ├── injective_core-*.whl         # Platform wheels
     └── injective_core-*.tar.gz      # Source distribution
@@ -281,9 +281,9 @@ Configure these in GitHub repository settings:
 
 | Platform | NPM os | NPM cpu | Package Name |
 |----------|--------|---------|--------------|
-| macOS ARM64 | `darwin` | `arm64` | `injective-cli-darwin-arm64` |
-| Linux ARM64 | `linux` | `arm64` | `injective-cli-linux-arm64` |
-| Linux x64 | `linux` | `x64` | `injective-cli-linux-x64` |
+| macOS ARM64 | `darwin` | `arm64` | `injective-core-darwin-arm64` |
+| Linux ARM64 | `linux` | `arm64` | `injective-core-linux-arm64` |
+| Linux x64 | `linux` | `x64` | `injective-core-linux-x64` |
 
 ### PyPI Platform Mapping
 
@@ -324,10 +324,10 @@ If the base package can't find the binary:
 
 ```bash
 # Check if platform package is installed
-npm list -g injective-cli-darwin-arm64  # (adjust for your platform)
+npm list -g injective-core-darwin-arm64  # (adjust for your platform)
 
 # Reinstall with optional dependencies
-npm install -g injective-cli --no-save
+npm install -g injective-core --no-save
 ```
 
 ### PyPI: "No matching distribution"
@@ -339,7 +339,7 @@ If pip can't find a wheel:
 pip debug --verbose | grep compatible
 
 # Install from source (fallback)
-pip install --no-binary injective-cli injective-cli
+pip install --no-binary injective-core injective-core
 ```
 
 ### Build Issues

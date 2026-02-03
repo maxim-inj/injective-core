@@ -89,8 +89,8 @@ npm-build-base: ensure-builder check-binaries
 		--build-arg VERSION=$(VERSION) \
 		.
 	@# Copy the base package from the build output
-	@cp -r $(OUTPUT_DIR)/npm-temp/build/npm/injective-cli $(OUTPUT_DIR)/npm/injective-cli 2>/dev/null || \
-		cp -r $(OUTPUT_DIR)/npm-temp/npm/injective-cli $(OUTPUT_DIR)/npm/injective-cli 2>/dev/null || \
+	@cp -r $(OUTPUT_DIR)/npm-temp/build/npm/injective-core $(OUTPUT_DIR)/npm/injective-core 2>/dev/null || \
+		cp -r $(OUTPUT_DIR)/npm-temp/npm/injective-core $(OUTPUT_DIR)/npm/injective-core 2>/dev/null || \
 		echo "Note: Base package may be built with platform packages"
 	@rm -rf $(OUTPUT_DIR)/npm-temp
 	@echo "Base NPM package built"
@@ -154,7 +154,7 @@ npm-publish-darwin-arm64:
 		echo "Error: NPM_TOKEN is required for publishing"; \
 		exit 1; \
 	fi
-	@cd $(OUTPUT_DIR)/npm/injective-cli-darwin-arm64 && \
+	@cd $(OUTPUT_DIR)/npm/injective-core-darwin-arm64 && \
 		npm publish --access public --registry https://registry.npmjs.org/
 
 npm-publish-linux-arm64:
@@ -163,7 +163,7 @@ npm-publish-linux-arm64:
 		echo "Error: NPM_TOKEN is required for publishing"; \
 		exit 1; \
 	fi
-	@cd $(OUTPUT_DIR)/npm/injective-cli-linux-arm64 && \
+	@cd $(OUTPUT_DIR)/npm/injective-core-linux-arm64 && \
 		npm publish --access public --registry https://registry.npmjs.org/
 
 npm-publish-linux-x64:
@@ -172,7 +172,7 @@ npm-publish-linux-x64:
 		echo "Error: NPM_TOKEN is required for publishing"; \
 		exit 1; \
 	fi
-	@cd $(OUTPUT_DIR)/npm/injective-cli-linux-x64 && \
+	@cd $(OUTPUT_DIR)/npm/injective-core-linux-x64 && \
 		npm publish --access public --registry https://registry.npmjs.org/
 
 npm-publish-base:
@@ -182,7 +182,7 @@ npm-publish-base:
 		exit 1; \
 	fi
 	@sleep 5  # Wait for platform packages to be available
-	@cd $(OUTPUT_DIR)/npm/injective-cli && \
+	@cd $(OUTPUT_DIR)/npm/injective-core && \
 		npm publish --access public --registry https://registry.npmjs.org/
 
 # =============================================================================

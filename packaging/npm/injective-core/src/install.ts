@@ -120,7 +120,7 @@ async function main(): Promise<void> {
   }
 
   const zipPath = path.join(binDir, assetInfo.zip);
-  const extractDir = fs.mkdtempSync(path.join(os.tmpdir(), "injective-cli-"));
+  const extractDir = fs.mkdtempSync(path.join(os.tmpdir(), "injective-core-"));
 
   try {
     await downloadFile({ url: downloadUrl, dest: zipPath });
