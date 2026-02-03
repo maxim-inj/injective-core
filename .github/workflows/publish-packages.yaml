@@ -303,26 +303,64 @@ jobs:
             exit 1
           fi
 
-      - name: Publish platform packages
+      - name: Publish NPM packages
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          for dir in output/npm/injective-core-*; do
-            if [ -d "$dir" ]; then
-              echo "Publishing $(basename $dir)..."
-              cd "$dir"
-              npm publish --access public
-              cd -
+          set -euo pipefail
+          shopt -s nullglob
+
+          total=0
+          published=0
+          skipped=0
+
+          publish_pkg() {
+            local dir="$1"
+            if [ ! -d "$dir" ]; then
+              return
             fi
+            if [ ! -f "$dir/package.json" ]; then
+              echo "Skipping $dir (missing package.json)"
+              return
+            fi
+            total=$((total + 1))
+            pushd "$dir" >/dev/null
+            local name version
+            name="$(node -p "require('./package.json').name")"
+            version="$(node -p "require('./package.json').version")"
+            if npm view "${name}@${version}" >/dev/null 2>&1; then
+              echo "Skipping ${name}@${version} (already published)"
+              skipped=$((skipped + 1))
+            else
+              echo "Publishing ${name}@${version}"
+              npm publish --access public
+              published=$((published + 1))
+            fi
+            popd >/dev/null
+          }
+
+          platform_dirs=(output/npm/injective-core-*)
+          if [ ${#platform_dirs[@]} -eq 0 ]; then
+            echo "Error: no platform-specific NPM packages found to publish"
+            exit 1
+          fi
+
+          for dir in "${platform_dirs[@]}"; do
+            publish_pkg "$dir"
           done
 
-      - name: Publish base package
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          sleep 10
-          cd output/npm/injective-core
-          npm publish --access public
+          # Publish base package last (optionalDependencies point at platform packages)
+          publish_pkg "output/npm/injective-core"
+
+          if [ "$total" -eq 0 ]; then
+            echo "Error: no NPM packages found to publish"
+            exit 1
+          fi
+
+          if [ "$published" -eq 0 ] && [ "$skipped" -eq "$total" ]; then
+            echo "Error: all NPM packages were skipped (already published)"
+            exit 1
+          fi
 
   # =============================================================================
   # Collect and publish PyPI
