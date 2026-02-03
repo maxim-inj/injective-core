@@ -100,7 +100,7 @@ target "pypi-linux-arm64" {
     target = "pypi-package-assembler"
     args = {
         PLATFORM = "linux-arm64"
-        PYPI_PLATFORM = "linux_arm64"
+        PYPI_PLATFORM = "manylinux_2_17_aarch64"
         VERSION = "${VERSION}"
     }
     platforms = ["linux/amd64"]
@@ -113,7 +113,7 @@ target "pypi-linux-x64" {
     target = "pypi-package-assembler"
     args = {
         PLATFORM = "linux-x64"
-        PYPI_PLATFORM = "linux_x86_64"
+        PYPI_PLATFORM = "manylinux_2_17_x86_64"
         VERSION = "${VERSION}"
     }
     platforms = ["linux/amd64"]

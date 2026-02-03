@@ -57,7 +57,7 @@ To build platform-specific wheels:
 
 ```bash
 # Set the target platform
-export INJECTIVED_PLATFORM=linux_x86_64  # or linux_arm64, darwin_arm64, darwin_x86_64
+export INJECTIVED_PLATFORM=manylinux_2_17_x86_64  # or manylinux_2_17_aarch64, macosx_11_0_arm64, macosx_11_0_x86_64
 
 # Build the wheel
 pip install build

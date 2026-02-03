@@ -230,7 +230,7 @@ pypi-build-linux-arm64: ensure-builder check-binaries
 		--target pypi-output \
 		--output type=local,dest=$(OUTPUT_DIR) \
 		--build-arg PLATFORM=linux-arm64 \
-		--build-arg PYPI_PLATFORM=linux_arm64 \
+		--build-arg PYPI_PLATFORM=manylinux_2_17_aarch64 \
 		--build-arg VERSION=$(VERSION) \
 		.
 
@@ -242,7 +242,7 @@ pypi-build-linux-x64: ensure-builder check-binaries
 		--target pypi-output \
 		--output type=local,dest=$(OUTPUT_DIR) \
 		--build-arg PLATFORM=linux-x64 \
-		--build-arg PYPI_PLATFORM=linux_x86_64 \
+		--build-arg PYPI_PLATFORM=manylinux_2_17_x86_64 \
 		--build-arg VERSION=$(VERSION) \
 		.
 

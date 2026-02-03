@@ -98,7 +98,7 @@ npx -p injective-cli injectived --help
 
 The PyPI package uses **platform-specific wheels** (PEP 425):
 
-1. Each wheel is tagged with a specific platform (e.g., `macosx_11_0_arm64`, `linux_x86_64`)
+1. Each wheel is tagged with a specific platform (e.g., `macosx_11_0_arm64`, `manylinux_2_17_x86_64`)
 2. `pip` automatically downloads the wheel matching the current platform
 3. The custom `hatch_build.py` hook includes the correct binary during wheel building
 
@@ -107,8 +107,8 @@ The PyPI package uses **platform-specific wheels** (PEP 425):
 - Source distribution (sdist) with Python wrapper code
 - Platform wheels with embedded binaries:
   - `injective_core-1.17.2-py3-none-macosx_11_0_arm64.whl`
-  - `injective_core-1.17.2-py3-none-linux_arm64.whl`
-  - `injective_core-1.17.2-py3-none-linux_x86_64.whl`
+  - `injective_core-1.17.2-py3-none-manylinux_2_17_aarch64.whl`
+  - `injective_core-1.17.2-py3-none-manylinux_2_17_x86_64.whl`
 
 ### Installation
 
@@ -290,8 +290,8 @@ Configure these in GitHub repository settings:
 | Platform | Wheel Platform Tag | Binary Suffix |
 |----------|-------------------|---------------|
 | macOS ARM64 | `macosx_11_0_arm64` | `darwin-arm64` |
-| Linux ARM64 | `linux_arm64` | `linux-arm64` |
-| Linux x64 | `linux_x86_64` | `linux-x64` |
+| Linux ARM64 | `manylinux_2_17_aarch64` | `linux-arm64` |
+| Linux x64 | `manylinux_2_17_x86_64` | `linux-x64` |
 
 ## Makefile Commands
 

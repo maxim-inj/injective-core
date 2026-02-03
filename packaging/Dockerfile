@@ -125,7 +125,7 @@ WORKDIR /build/pypi/injective-cli
 # PyPI Package Assembler Stage
 # Arguments:
 #   PLATFORM: Target platform (darwin-arm64, linux-arm64, linux-x64)
-#   PYPI_PLATFORM: PyPI platform tag (macosx_11_0_arm64, linux_x86_64, etc.)
+#   PYPI_PLATFORM: PyPI platform tag (macosx_11_0_arm64, manylinux_2_17_x86_64, etc.)
 #   VERSION: Package version
 # -----------------------------------------------------------------------------
 FROM pypi-builder AS pypi-package-assembler

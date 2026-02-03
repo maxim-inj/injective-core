@@ -40,9 +40,6 @@ class InjectivedBuildHook(BuildHookInterface):
         "manylinux2014_aarch64": "injectived-linux-arm64",
         "manylinux_2_17_aarch64": "injectived-linux-arm64",
         "manylinux_2_28_aarch64": "injectived-linux-arm64",
-        "linux_x86_64": "injectived-linux-x64",
-        "linux_aarch64": "injectived-linux-arm64",
-        "linux_arm64": "injectived-linux-arm64",
     }
 
     PLATFORM_LIBS = {
@@ -62,9 +59,6 @@ class InjectivedBuildHook(BuildHookInterface):
         "manylinux2014_aarch64": "libwasmvm.aarch64.so",
         "manylinux_2_17_aarch64": "libwasmvm.aarch64.so",
         "manylinux_2_28_aarch64": "libwasmvm.aarch64.so",
-        "linux_x86_64": "libwasmvm.x86_64.so",
-        "linux_aarch64": "libwasmvm.aarch64.so",
-        "linux_arm64": "libwasmvm.aarch64.so",
     }
     
     def initialize(self, version, build_data):
@@ -179,9 +173,9 @@ class InjectivedBuildHook(BuildHookInterface):
                 return "macosx_11_0_x86_64"
         elif system == "linux":
             if machine in ("arm64", "aarch64"):
-                return "linux_arm64"
+                return "manylinux_2_17_aarch64"
             elif machine in ("x86_64", "amd64"):
-                return "linux_x86_64"
+                return "manylinux_2_17_x86_64"
         
         return ""
     
