@@ -7,12 +7,17 @@
 //   docker buildx bake --file docker-bake.hcl all-packages
 //
 // Environment Variables:
-//   VERSION - Package version (default: 1.17.2-build.2)
+//   VERSION - NPM package version (default: 1.17.2)
+//   PYPI_VERSION - PyPI package version (default: 1.17.2.post2)
 //   OUTPUT_DIR - Output directory (default: ./output)
 // =============================================================================
 
 variable "VERSION" {
-    default = "1.17.2-build.2"
+    default = "1.17.2"
+}
+
+variable "PYPI_VERSION" {
+    default = "1.17.2.post2"
 }
 
 variable "OUTPUT_DIR" {
@@ -75,11 +80,11 @@ target "pypi-darwin-arm64" {
     args = {
         PLATFORM = "darwin-arm64"
         PYPI_PLATFORM = "macosx_11_0_arm64"
-        VERSION = "${VERSION}"
+        VERSION = "${PYPI_VERSION}"
     }
     platforms = ["linux/amd64"]
     output = ["type=local,dest=${OUTPUT_DIR}/pypi"]
-    tags = ["injective-core/pypi-darwin-arm64:${VERSION}"]
+    tags = ["injective-core/pypi-darwin-arm64:${PYPI_VERSION}"]
 }
 
 target "pypi-darwin-x64" {
@@ -88,11 +93,11 @@ target "pypi-darwin-x64" {
     args = {
         PLATFORM = "darwin-x64"
         PYPI_PLATFORM = "macosx_11_0_x86_64"
-        VERSION = "${VERSION}"
+        VERSION = "${PYPI_VERSION}"
     }
     platforms = ["linux/amd64"]
     output = ["type=local,dest=${OUTPUT_DIR}/pypi"]
-    tags = ["injective-core/pypi-darwin-x64:${VERSION}"]
+    tags = ["injective-core/pypi-darwin-x64:${PYPI_VERSION}"]
 }
 
 target "pypi-linux-arm64" {
@@ -101,11 +106,11 @@ target "pypi-linux-arm64" {
     args = {
         PLATFORM = "linux-arm64"
         PYPI_PLATFORM = "manylinux_2_17_aarch64"
-        VERSION = "${VERSION}"
+        VERSION = "${PYPI_VERSION}"
     }
     platforms = ["linux/amd64"]
     output = ["type=local,dest=${OUTPUT_DIR}/pypi"]
-    tags = ["injective-core/pypi-linux-arm64:${VERSION}"]
+    tags = ["injective-core/pypi-linux-arm64:${PYPI_VERSION}"]
 }
 
 target "pypi-linux-x64" {
@@ -114,11 +119,11 @@ target "pypi-linux-x64" {
     args = {
         PLATFORM = "linux-x64"
         PYPI_PLATFORM = "manylinux_2_17_x86_64"
-        VERSION = "${VERSION}"
+        VERSION = "${PYPI_VERSION}"
     }
     platforms = ["linux/amd64"]
     output = ["type=local,dest=${OUTPUT_DIR}/pypi"]
-    tags = ["injective-core/pypi-linux-x64:${VERSION}"]
+    tags = ["injective-core/pypi-linux-x64:${PYPI_VERSION}"]
 }
 
 // =============================================================================

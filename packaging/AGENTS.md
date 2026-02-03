@@ -106,9 +106,9 @@ The PyPI package uses **platform-specific wheels** (PEP 425):
 
 - Source distribution (sdist) with Python wrapper code
 - Platform wheels with embedded binaries:
-  - `injective_core-1.17.2-build.2-py3-none-macosx_11_0_arm64.whl`
-  - `injective_core-1.17.2-build.2-py3-none-manylinux_2_17_aarch64.whl`
-  - `injective_core-1.17.2-build.2-py3-none-manylinux_2_17_x86_64.whl`
+  - `injective_core-1.17.2.post2-py3-none-macosx_11_0_arm64.whl`
+  - `injective_core-1.17.2.post2-py3-none-manylinux_2_17_aarch64.whl`
+  - `injective_core-1.17.2.post2-py3-none-manylinux_2_17_x86_64.whl`
 
 ### Installation
 
@@ -142,7 +142,7 @@ binaries/
 
 ```bash
 cd packaging
-make all-build VERSION=1.17.2-build.2
+make all-build VERSION=1.17.2 PYPI_VERSION=1.17.2.post2
 ```
 
 Output will be in `output/`:
@@ -163,20 +163,20 @@ output/
 
 ```bash
 # NPM only
-make npm-build VERSION=1.17.2-build.2
+make npm-build VERSION=1.17.2
 
 # PyPI only  
-make pypi-build VERSION=1.17.2-build.2
+make pypi-build VERSION=1.17.2 PYPI_VERSION=1.17.2.post2
 ```
 
 ### Building Individual Platform Packages
 
 ```bash
 # Single NPM platform package
-make npm-build-darwin-arm64 VERSION=1.17.2-build.2
+make npm-build-darwin-arm64 VERSION=1.17.2
 
 # Single PyPI wheel
-make pypi-build-darwin-arm64 VERSION=1.17.2-build.2
+make pypi-build-darwin-arm64 VERSION=1.17.2 PYPI_VERSION=1.17.2.post2
 ```
 
 ### Using Docker Bake (Alternative)
@@ -202,10 +202,10 @@ docker buildx bake --file docker-bake.hcl all-packages
 cd packaging
 
 # 1. Build everything
-make npm-build VERSION=1.17.2-build.2
+make npm-build VERSION=1.17.2
 
 # 2. Publish all NPM packages
-make npm-publish NPM_TOKEN=xxx VERSION=1.17.2-build.2
+make npm-publish NPM_TOKEN=xxx VERSION=1.17.2 NPM_TAG=1.17.2.post2
 
 # Or publish individual packages
 make npm-publish-platform PLATFORM=darwin-arm64 NPM_TOKEN=xxx
@@ -215,15 +215,15 @@ make npm-publish-platform PLATFORM=darwin-arm64 NPM_TOKEN=xxx
 
 ```bash
 cd packaging
-make pypi-build VERSION=1.17.2-build.2
-make pypi-publish PYPI_TOKEN=xxx VERSION=1.17.2-build.2
+make pypi-build VERSION=1.17.2 PYPI_VERSION=1.17.2.post2
+make pypi-publish PYPI_TOKEN=xxx VERSION=1.17.2 PYPI_VERSION=1.17.2.post2
 ```
 
 ### TestPyPI (Testing)
 
 ```bash
 cd packaging
-make pypi-publish-test PYPI_TOKEN=xxx VERSION=1.17.2-build.2
+make pypi-publish-test PYPI_TOKEN=xxx VERSION=1.17.2 PYPI_VERSION=1.17.2.post2
 ```
 
 ## GitHub Actions Workflow

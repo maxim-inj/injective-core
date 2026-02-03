@@ -1,6 +1,6 @@
 {
   "name": "injective-core",
-  "version": "1.17.2-build.2",
+  "version": "1.17.2",
   "description": "Injective Core - Injective Protocol blockchain node binary (injectived)",
   "main": "lib/index.js",
   "bin": {
@@ -39,9 +39,9 @@
     "tar": "^7.5.7"
   },
   "optionalDependencies": {
-    "injective-core-darwin-arm64": "1.17.2-build.2",
-    "injective-core-linux-arm64": "1.17.2-build.2",
-    "injective-core-linux-x64": "1.17.2-build.2"
+    "injective-core-darwin-arm64": "1.17.2",
+    "injective-core-linux-arm64": "1.17.2",
+    "injective-core-linux-x64": "1.17.2"
   },
   "files": [
     "lib/**/*",

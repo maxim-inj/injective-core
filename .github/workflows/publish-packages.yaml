@@ -123,6 +123,12 @@ jobs:
         run: |
           VERSION_NO_V="${{ github.event.inputs.tag }}"
           VERSION_NO_V="${VERSION_NO_V#v}"
+          NPM_VERSION="$VERSION_NO_V"
+          if [[ "$NPM_VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-build\.[0-9]+$ ]]; then
+            NPM_VERSION="${BASH_REMATCH[1]}"
+          elif [[ "$NPM_VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-post\.[0-9]+$ ]]; then
+            NPM_VERSION="${BASH_REMATCH[1]}"
+          fi
           
           docker buildx build \
             --file Dockerfile \
@@ -131,7 +137,7 @@ jobs:
             --build-arg PLATFORM="${{ matrix.platform }}" \
             --build-arg NODE_OS="${{ matrix.node_os }}" \
             --build-arg NODE_ARCH="${{ matrix.node_arch }}" \
-            --build-arg NODE_VERSION="$VERSION_NO_V" \
+            --build-arg NODE_VERSION="$NPM_VERSION" \
             .
           
           ls -la output/npm/
@@ -225,6 +231,18 @@ jobs:
         run: |
           VERSION_NO_V="${{ github.event.inputs.tag }}"
           VERSION_NO_V="${VERSION_NO_V#v}"
+          PYPI_VERSION="$VERSION_NO_V"
+          if [[ "$PYPI_VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-build\.([0-9]+)$ ]]; then
+            PYPI_VERSION="${BASH_REMATCH[1]}.post${BASH_REMATCH[2]}"
+          elif [[ "$PYPI_VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-post\.([0-9]+)$ ]]; then
+            PYPI_VERSION="${BASH_REMATCH[1]}.post${BASH_REMATCH[2]}"
+          elif [[ "$PYPI_VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-b\.?([0-9]+)$ ]]; then
+            PYPI_VERSION="${BASH_REMATCH[1]}b${BASH_REMATCH[2]}"
+          elif [[ "$PYPI_VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-rc\.?([0-9]+)$ ]]; then
+            PYPI_VERSION="${BASH_REMATCH[1]}rc${BASH_REMATCH[2]}"
+          elif [[ "$PYPI_VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-dev\.?([0-9]+)$ ]]; then
+            PYPI_VERSION="${BASH_REMATCH[1]}.dev${BASH_REMATCH[2]}"
+          fi
           
           docker buildx build \
             --file Dockerfile \
@@ -232,7 +250,7 @@ jobs:
             --output type=local,dest=./output \
             --build-arg PLATFORM="${{ matrix.platform }}" \
             --build-arg PYPI_PLATFORM="${{ matrix.pypi_platform }}" \
-            --build-arg VERSION="$VERSION_NO_V" \
+            --build-arg VERSION="$PYPI_VERSION" \
             .
           
           ls -la output/pypi/
@@ -309,6 +327,14 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
+          TAG_INPUT="${{ github.event.inputs.tag }}"
+          VERSION_NO_V="${TAG_INPUT#v}"
+          NPM_TAG=""
+          if [[ "$VERSION_NO_V" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-build\.([0-9]+)$ ]]; then
+            NPM_TAG="${BASH_REMATCH[1]}.post${BASH_REMATCH[2]}"
+          elif [[ "$VERSION_NO_V" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-post\.([0-9]+)$ ]]; then
+            NPM_TAG="${BASH_REMATCH[1]}.post${BASH_REMATCH[2]}"
+          fi
 
           total=0
           published=0
@@ -332,8 +358,29 @@ jobs:
               echo "Skipping ${name}@${version} (already published)"
               skipped=$((skipped + 1))
             else
+              local tag_args=()
+              local tag="$NPM_TAG"
+              if [ -z "$tag" ] && [[ "$version" == *"-"* ]]; then
+                case "$version" in
+                  *-build.*)
+                    if [[ "$version" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-build\.([0-9]+)$ ]]; then
+                      tag="${BASH_REMATCH[1]}.post${BASH_REMATCH[2]}"
+                    else
+                      tag="build"
+                    fi
+                    ;;
+                  *-rc.*) tag="rc" ;;
+                  *-beta.*|*-b.*) tag="beta" ;;
+                  *-alpha.*|*-a.*) tag="alpha" ;;
+                  *-dev.*) tag="dev" ;;
+                  *) tag="next" ;;
+                esac
+              fi
+              if [ -n "$tag" ]; then
+                tag_args=(--tag "$tag")
+              fi
               echo "Publishing ${name}@${version}"
-              npm publish --access public
+              npm publish --access public "${tag_args[@]}"
               published=$((published + 1))
             fi
             popd >/dev/null

@@ -8,17 +8,19 @@
 #   - Docker with buildx support (Docker 20.10+)
 #
 # Usage:
-#   make npm-build VERSION=1.17.2-build.2    # Build all NPM packages
-#   make pypi-build VERSION=1.17.2-build.2   # Build all PyPI packages
-#   make all-build VERSION=1.17.2-build.2    # Build all packages
+#   make npm-build VERSION=1.17.2    # Build all NPM packages
+#   make pypi-build VERSION=1.17.2 PYPI_VERSION=1.17.2.post2   # Build all PyPI packages
+#   make all-build VERSION=1.17.2 PYPI_VERSION=1.17.2.post2    # Build all packages
 #
 # Publishing (requires registry credentials):
-#   make npm-publish NPM_TOKEN=xxx VERSION=1.17.2-build.2
-#   make pypi-publish PYPI_TOKEN=xxx VERSION=1.17.2-build.2
+#   make npm-publish NPM_TOKEN=xxx VERSION=1.17.2 NPM_TAG=1.17.2.post2
+#   make pypi-publish PYPI_TOKEN=xxx VERSION=1.17.2 PYPI_VERSION=1.17.2.post2
 # =============================================================================
 
 # Configuration
-VERSION ?= 1.17.2-build.2
+VERSION ?= 1.17.2
+PYPI_VERSION ?= 1.17.2.post2
+NPM_TAG ?= $(PYPI_VERSION)
 OUTPUT_DIR ?= $(CURDIR)/output
 BINARIES_DIR ?= $(CURDIR)/binaries
 
@@ -54,6 +56,8 @@ help:
 	@echo ""
 	@echo "Variables:"
 	@echo "  VERSION=$(VERSION)"
+	@echo "  PYPI_VERSION=$(PYPI_VERSION)"
+	@echo "  NPM_TAG=$(NPM_TAG)"
 	@echo "  OUTPUT_DIR=$(OUTPUT_DIR)"
 	@echo "  BINARIES_DIR=$(BINARIES_DIR)"
 
@@ -157,7 +161,24 @@ npm-publish-darwin-arm64:
 	@mkdir -p $(OUTPUT_DIR)
 	@printf "//registry.npmjs.org/:_authToken=%s\n" "$(NPM_TOKEN)" > $(OUTPUT_DIR)/.npmrc
 	@cd $(OUTPUT_DIR)/npm/injective-core-darwin-arm64 && \
-		NPM_CONFIG_USERCONFIG=$(OUTPUT_DIR)/.npmrc npm publish --access public --registry https://registry.npmjs.org/
+		VERSION=$$(node -p "require('./package.json').version"); \
+		TAG_ARGS=""; \
+		TAG="$(NPM_TAG)"; \
+		if [ -z "$$TAG" ] && echo "$$VERSION" | grep -q '-'; then \
+			if echo "$$VERSION" | grep -Eq '^[0-9]+\\.[0-9]+\\.[0-9]+-build\\.[0-9]+$$'; then \
+				TAG=$$(echo "$$VERSION" | sed -E 's/^([0-9]+\\.[0-9]+\\.[0-9]+)-build\\.([0-9]+)$$/\\1.post\\2/'); \
+			else \
+				case "$$VERSION" in \
+					*-rc.*) TAG="rc" ;; \
+					*-beta.*|*-b.*) TAG="beta" ;; \
+					*-alpha.*|*-a.*) TAG="alpha" ;; \
+					*-dev.*) TAG="dev" ;; \
+					*) TAG="next" ;; \
+				esac; \
+			fi; \
+		fi; \
+		if [ -n "$$TAG" ]; then TAG_ARGS="--tag $$TAG"; fi; \
+		NPM_CONFIG_USERCONFIG=$(OUTPUT_DIR)/.npmrc npm publish --access public $$TAG_ARGS --registry https://registry.npmjs.org/
 	@rm -f $(OUTPUT_DIR)/.npmrc
 
 npm-publish-linux-arm64:
@@ -169,7 +190,24 @@ npm-publish-linux-arm64:
 	@mkdir -p $(OUTPUT_DIR)
 	@printf "//registry.npmjs.org/:_authToken=%s\n" "$(NPM_TOKEN)" > $(OUTPUT_DIR)/.npmrc
 	@cd $(OUTPUT_DIR)/npm/injective-core-linux-arm64 && \
-		NPM_CONFIG_USERCONFIG=$(OUTPUT_DIR)/.npmrc npm publish --access public --registry https://registry.npmjs.org/
+		VERSION=$$(node -p "require('./package.json').version"); \
+		TAG_ARGS=""; \
+		TAG="$(NPM_TAG)"; \
+		if [ -z "$$TAG" ] && echo "$$VERSION" | grep -q '-'; then \
+			if echo "$$VERSION" | grep -Eq '^[0-9]+\\.[0-9]+\\.[0-9]+-build\\.[0-9]+$$'; then \
+				TAG=$$(echo "$$VERSION" | sed -E 's/^([0-9]+\\.[0-9]+\\.[0-9]+)-build\\.([0-9]+)$$/\\1.post\\2/'); \
+			else \
+				case "$$VERSION" in \
+					*-rc.*) TAG="rc" ;; \
+					*-beta.*|*-b.*) TAG="beta" ;; \
+					*-alpha.*|*-a.*) TAG="alpha" ;; \
+					*-dev.*) TAG="dev" ;; \
+					*) TAG="next" ;; \
+				esac; \
+			fi; \
+		fi; \
+		if [ -n "$$TAG" ]; then TAG_ARGS="--tag $$TAG"; fi; \
+		NPM_CONFIG_USERCONFIG=$(OUTPUT_DIR)/.npmrc npm publish --access public $$TAG_ARGS --registry https://registry.npmjs.org/
 	@rm -f $(OUTPUT_DIR)/.npmrc
 
 npm-publish-linux-x64:
@@ -181,7 +219,24 @@ npm-publish-linux-x64:
 	@mkdir -p $(OUTPUT_DIR)
 	@printf "//registry.npmjs.org/:_authToken=%s\n" "$(NPM_TOKEN)" > $(OUTPUT_DIR)/.npmrc
 	@cd $(OUTPUT_DIR)/npm/injective-core-linux-x64 && \
-		NPM_CONFIG_USERCONFIG=$(OUTPUT_DIR)/.npmrc npm publish --access public --registry https://registry.npmjs.org/
+		VERSION=$$(node -p "require('./package.json').version"); \
+		TAG_ARGS=""; \
+		TAG="$(NPM_TAG)"; \
+		if [ -z "$$TAG" ] && echo "$$VERSION" | grep -q '-'; then \
+			if echo "$$VERSION" | grep -Eq '^[0-9]+\\.[0-9]+\\.[0-9]+-build\\.[0-9]+$$'; then \
+				TAG=$$(echo "$$VERSION" | sed -E 's/^([0-9]+\\.[0-9]+\\.[0-9]+)-build\\.([0-9]+)$$/\\1.post\\2/'); \
+			else \
+				case "$$VERSION" in \
+					*-rc.*) TAG="rc" ;; \
+					*-beta.*|*-b.*) TAG="beta" ;; \
+					*-alpha.*|*-a.*) TAG="alpha" ;; \
+					*-dev.*) TAG="dev" ;; \
+					*) TAG="next" ;; \
+				esac; \
+			fi; \
+		fi; \
+		if [ -n "$$TAG" ]; then TAG_ARGS="--tag $$TAG"; fi; \
+		NPM_CONFIG_USERCONFIG=$(OUTPUT_DIR)/.npmrc npm publish --access public $$TAG_ARGS --registry https://registry.npmjs.org/
 	@rm -f $(OUTPUT_DIR)/.npmrc
 
 npm-publish-base:
@@ -194,7 +249,24 @@ npm-publish-base:
 	@mkdir -p $(OUTPUT_DIR)
 	@printf "//registry.npmjs.org/:_authToken=%s\n" "$(NPM_TOKEN)" > $(OUTPUT_DIR)/.npmrc
 	@cd $(OUTPUT_DIR)/npm/injective-core && \
-		NPM_CONFIG_USERCONFIG=$(OUTPUT_DIR)/.npmrc npm publish --access public --registry https://registry.npmjs.org/
+		VERSION=$$(node -p "require('./package.json').version"); \
+		TAG_ARGS=""; \
+		TAG="$(NPM_TAG)"; \
+		if [ -z "$$TAG" ] && echo "$$VERSION" | grep -q '-'; then \
+			if echo "$$VERSION" | grep -Eq '^[0-9]+\\.[0-9]+\\.[0-9]+-build\\.[0-9]+$$'; then \
+				TAG=$$(echo "$$VERSION" | sed -E 's/^([0-9]+\\.[0-9]+\\.[0-9]+)-build\\.([0-9]+)$$/\\1.post\\2/'); \
+			else \
+				case "$$VERSION" in \
+					*-rc.*) TAG="rc" ;; \
+					*-beta.*|*-b.*) TAG="beta" ;; \
+					*-alpha.*|*-a.*) TAG="alpha" ;; \
+					*-dev.*) TAG="dev" ;; \
+					*) TAG="next" ;; \
+				esac; \
+			fi; \
+		fi; \
+		if [ -n "$$TAG" ]; then TAG_ARGS="--tag $$TAG"; fi; \
+		NPM_CONFIG_USERCONFIG=$(OUTPUT_DIR)/.npmrc npm publish --access public $$TAG_ARGS --registry https://registry.npmjs.org/
 	@rm -f $(OUTPUT_DIR)/.npmrc
 
 # =============================================================================
@@ -219,7 +291,7 @@ pypi-build-darwin-arm64: ensure-builder check-binaries
 		--output type=local,dest=$(OUTPUT_DIR) \
 		--build-arg PLATFORM=darwin-arm64 \
 		--build-arg PYPI_PLATFORM=macosx_11_0_arm64 \
-		--build-arg VERSION=$(VERSION) \
+		--build-arg VERSION=$(PYPI_VERSION) \
 		.
 
 pypi-build-darwin-x64: ensure-builder check-binaries
@@ -231,7 +303,7 @@ pypi-build-darwin-x64: ensure-builder check-binaries
 		--output type=local,dest=$(OUTPUT_DIR) \
 		--build-arg PLATFORM=darwin-x64 \
 		--build-arg PYPI_PLATFORM=macosx_11_0_x86_64 \
-		--build-arg VERSION=$(VERSION) \
+		--build-arg VERSION=$(PYPI_VERSION) \
 		.
 
 pypi-build-linux-arm64: ensure-builder check-binaries
@@ -243,7 +315,7 @@ pypi-build-linux-arm64: ensure-builder check-binaries
 		--output type=local,dest=$(OUTPUT_DIR) \
 		--build-arg PLATFORM=linux-arm64 \
 		--build-arg PYPI_PLATFORM=manylinux_2_17_aarch64 \
-		--build-arg VERSION=$(VERSION) \
+		--build-arg VERSION=$(PYPI_VERSION) \
 		.
 
 pypi-build-linux-x64: ensure-builder check-binaries
@@ -255,7 +327,7 @@ pypi-build-linux-x64: ensure-builder check-binaries
 		--output type=local,dest=$(OUTPUT_DIR) \
 		--build-arg PLATFORM=linux-x64 \
 		--build-arg PYPI_PLATFORM=manylinux_2_17_x86_64 \
-		--build-arg VERSION=$(VERSION) \
+		--build-arg VERSION=$(PYPI_VERSION) \
 		.
 
 pypi-build-sdist: ensure-builder
@@ -266,7 +338,7 @@ pypi-build-sdist: ensure-builder
 # Build PyPI packages using docker-bake (alternative)
 pypi-build-bake: ensure-builder check-binaries
 	@echo "Building PyPI packages with docker-bake..."
-	@VERSION=$(VERSION) OUTPUT_DIR=$(OUTPUT_DIR) \
+	@PYPI_VERSION=$(PYPI_VERSION) OUTPUT_DIR=$(OUTPUT_DIR) \
 		docker buildx bake --file $(BAKE_FILE) pypi-packages
 
 # Publish PyPI packages
