@@ -31,12 +31,12 @@
   },
   "homepage": "https://github.com/InjectiveFoundation/injective-core#readme",
   "devDependencies": {
-    "@types/node": "^20.0.0",
-    "typescript": "^5.0.0"
+    "@types/node": "^25.2.0",
+    "typescript": "^5.9.3"
   },
   "dependencies": {
-    "adm-zip": "^0.5.10",
-    "tar": "^6.2.0",
+    "adm-zip": "^0.5.16",
+    "tar": "^7.5.7",
     "zstd-codec": "^0.1.5"
   },
   "optionalDependencies": {

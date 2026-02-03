@@ -154,8 +154,11 @@ npm-publish-darwin-arm64:
 		echo "Error: NPM_TOKEN is required for publishing"; \
 		exit 1; \
 	fi
+	@mkdir -p $(OUTPUT_DIR)
+	@printf "//registry.npmjs.org/:_authToken=%s\n" "$(NPM_TOKEN)" > $(OUTPUT_DIR)/.npmrc
 	@cd $(OUTPUT_DIR)/npm/injective-core-darwin-arm64 && \
-		npm publish --access public --registry https://registry.npmjs.org/
+		NPM_CONFIG_USERCONFIG=$(OUTPUT_DIR)/.npmrc npm publish --access public --registry https://registry.npmjs.org/
+	@rm -f $(OUTPUT_DIR)/.npmrc
 
 npm-publish-linux-arm64:
 	@echo "Publishing NPM package for linux-arm64..."
@@ -163,8 +166,11 @@ npm-publish-linux-arm64:
 		echo "Error: NPM_TOKEN is required for publishing"; \
 		exit 1; \
 	fi
+	@mkdir -p $(OUTPUT_DIR)
+	@printf "//registry.npmjs.org/:_authToken=%s\n" "$(NPM_TOKEN)" > $(OUTPUT_DIR)/.npmrc
 	@cd $(OUTPUT_DIR)/npm/injective-core-linux-arm64 && \
-		npm publish --access public --registry https://registry.npmjs.org/
+		NPM_CONFIG_USERCONFIG=$(OUTPUT_DIR)/.npmrc npm publish --access public --registry https://registry.npmjs.org/
+	@rm -f $(OUTPUT_DIR)/.npmrc
 
 npm-publish-linux-x64:
 	@echo "Publishing NPM package for linux-x64..."
@@ -172,8 +178,11 @@ npm-publish-linux-x64:
 		echo "Error: NPM_TOKEN is required for publishing"; \
 		exit 1; \
 	fi
+	@mkdir -p $(OUTPUT_DIR)
+	@printf "//registry.npmjs.org/:_authToken=%s\n" "$(NPM_TOKEN)" > $(OUTPUT_DIR)/.npmrc
 	@cd $(OUTPUT_DIR)/npm/injective-core-linux-x64 && \
-		npm publish --access public --registry https://registry.npmjs.org/
+		NPM_CONFIG_USERCONFIG=$(OUTPUT_DIR)/.npmrc npm publish --access public --registry https://registry.npmjs.org/
+	@rm -f $(OUTPUT_DIR)/.npmrc
 
 npm-publish-base:
 	@echo "Publishing NPM base package..."
@@ -182,8 +191,11 @@ npm-publish-base:
 		exit 1; \
 	fi
 	@sleep 5  # Wait for platform packages to be available
+	@mkdir -p $(OUTPUT_DIR)
+	@printf "//registry.npmjs.org/:_authToken=%s\n" "$(NPM_TOKEN)" > $(OUTPUT_DIR)/.npmrc
 	@cd $(OUTPUT_DIR)/npm/injective-core && \
-		npm publish --access public --registry https://registry.npmjs.org/
+		NPM_CONFIG_USERCONFIG=$(OUTPUT_DIR)/.npmrc npm publish --access public --registry https://registry.npmjs.org/
+	@rm -f $(OUTPUT_DIR)/.npmrc
 
 # =============================================================================
 # PyPI Package Targets

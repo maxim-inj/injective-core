@@ -10,7 +10,7 @@ on:
 
 env:
   GO_VERSION: "1.23.9"
-  NODE_VERSION: "20"
+  NODE_VERSION: "25"
   PYTHON_VERSION: "3.12"
 
 jobs:
@@ -268,6 +268,7 @@ jobs:
 
       - name: Organize packages
         run: |
+          rm -rf output/npm
           mkdir -p output/npm/injective-core
           if [ ! -d "npm-packages/npm-base" ]; then
             echo "Error: npm-base artifact not found"
@@ -285,13 +286,22 @@ jobs:
           rsync -a "$base_dir"/ output/npm/injective-core/
           for dir in npm-packages/npm-*; do
             if [ -d "$dir" ]; then
-              if [ "$(basename "$dir")" = "npm-base" ]; then
+              artifact="$(basename "$dir")"
+              if [ "$artifact" = "npm-base" ]; then
                 continue
               fi
-              rsync -a "$dir"/ output/npm/
+              platform="${artifact#npm-}"
+              dest="output/npm/injective-core-${platform}"
+              mkdir -p "$dest"
+              rsync -a "$dir"/ "$dest"/
             fi
           done
           ls -la output/npm/
+          if ! ls output/npm/injective-core-* >/dev/null 2>&1; then
+            echo "Error: no platform-specific NPM packages found"
+            find npm-packages -maxdepth 2 -type d -print
+            exit 1
+          fi
 
       - name: Publish platform packages
         env:

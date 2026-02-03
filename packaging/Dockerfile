@@ -12,7 +12,7 @@
 # -----------------------------------------------------------------------------
 # Base stage with common dependencies
 # -----------------------------------------------------------------------------
-FROM --platform=$BUILDPLATFORM node:20-slim AS base
+FROM --platform=$BUILDPLATFORM node:25-slim AS base
 
 # Install common tools
 RUN apt-get update && apt-get install -y --no-install-recommends \
