@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "injective-core"
-version = "1.17.2.post2"
+version = "1.17.2.post3"
 description = "Injective Core - Injective blockchain node binary (injectived)"
 readme = "README.md"
 requires-python = ">=3.9"

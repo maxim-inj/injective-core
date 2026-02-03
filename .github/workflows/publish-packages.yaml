@@ -124,12 +124,10 @@ jobs:
           VERSION_NO_V="${{ github.event.inputs.tag }}"
           VERSION_NO_V="${VERSION_NO_V#v}"
           NPM_VERSION="$VERSION_NO_V"
-          if [[ "$NPM_VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-build\.[0-9]+$ ]]; then
-            NPM_VERSION="${BASH_REMATCH[1]}"
-          elif [[ "$NPM_VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-post\.[0-9]+$ ]]; then
-            NPM_VERSION="${BASH_REMATCH[1]}"
-          elif [[ "$NPM_VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+)\.post[0-9]+$ ]]; then
-            NPM_VERSION="${BASH_REMATCH[1]}"
+          if [[ "$NPM_VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+)\.post([0-9]+)$ ]]; then
+            NPM_VERSION="${BASH_REMATCH[1]}-build${BASH_REMATCH[2]}"
+          elif [[ "$NPM_VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-post\.([0-9]+)$ ]]; then
+            NPM_VERSION="${BASH_REMATCH[1]}-build${BASH_REMATCH[2]}"
           fi
           
           docker buildx build \
@@ -333,13 +331,13 @@ jobs:
           shopt -s nullglob
           TAG_INPUT="${{ github.event.inputs.tag }}"
           VERSION_NO_V="${TAG_INPUT#v}"
-          NPM_TAG=""
+          NPM_TAG="build"
           if [[ "$VERSION_NO_V" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-build\.([0-9]+)$ ]]; then
-            NPM_TAG="${BASH_REMATCH[1]}.post${BASH_REMATCH[2]}"
+            NPM_TAG="build"
           elif [[ "$VERSION_NO_V" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-post\.([0-9]+)$ ]]; then
-            NPM_TAG="${BASH_REMATCH[1]}.post${BASH_REMATCH[2]}"
+            NPM_TAG="build"
           elif [[ "$VERSION_NO_V" =~ ^([0-9]+\.[0-9]+\.[0-9]+)\.post([0-9]+)$ ]]; then
-            NPM_TAG="${BASH_REMATCH[1]}.post${BASH_REMATCH[2]}"
+            NPM_TAG="build"
           fi
 
           total=0

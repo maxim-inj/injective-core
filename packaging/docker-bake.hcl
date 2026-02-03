@@ -7,17 +7,17 @@
 //   docker buildx bake --file docker-bake.hcl all-packages
 //
 // Environment Variables:
-//   VERSION - NPM package version (default: 1.17.2)
-//   PYPI_VERSION - PyPI package version (default: 1.17.2.post2)
+//   VERSION - NPM package version (default: 1.17.2-build3)
+//   PYPI_VERSION - PyPI package version (default: 1.17.2.post3)
 //   OUTPUT_DIR - Output directory (default: ./output)
 // =============================================================================
 
 variable "VERSION" {
-    default = "1.17.2"
+    default = "1.17.2-build3"
 }
 
 variable "PYPI_VERSION" {
-    default = "1.17.2.post2"
+    default = "1.17.2.post3"
 }
 
 variable "OUTPUT_DIR" {
