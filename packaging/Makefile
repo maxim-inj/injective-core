@@ -20,6 +20,7 @@
 # Configuration
 VERSION ?= 1.17.2
 PYPI_VERSION ?= 1.17.2.post2
+NPM_VERSION ?= $(shell printf "%s" "$(VERSION)" | sed -E 's/^([0-9]+\\.[0-9]+\\.[0-9]+)\\.post[0-9]+$$/\\1/; s/^([0-9]+\\.[0-9]+\\.[0-9]+)-post\\.([0-9]+)$$/\\1/; s/^([0-9]+\\.[0-9]+\\.[0-9]+)-build\\.([0-9]+)$$/\\1/')
 NPM_TAG ?= $(PYPI_VERSION)
 OUTPUT_DIR ?= $(CURDIR)/output
 BINARIES_DIR ?= $(CURDIR)/binaries
@@ -58,6 +59,7 @@ help:
 	@echo "  VERSION=$(VERSION)"
 	@echo "  PYPI_VERSION=$(PYPI_VERSION)"
 	@echo "  NPM_TAG=$(NPM_TAG)"
+	@echo "  NPM_VERSION=$(NPM_VERSION)"
 	@echo "  OUTPUT_DIR=$(OUTPUT_DIR)"
 	@echo "  BINARIES_DIR=$(BINARIES_DIR)"
 
@@ -112,7 +114,7 @@ npm-build-darwin-arm64: ensure-builder check-binaries
 		--build-arg PLATFORM=darwin-arm64 \
 		--build-arg NODE_OS=darwin \
 		--build-arg NODE_ARCH=arm64 \
-		--build-arg NODE_VERSION=$(VERSION) \
+		--build-arg NODE_VERSION=$(NPM_VERSION) \
 		.
 
 npm-build-linux-arm64: ensure-builder check-binaries
@@ -125,7 +127,7 @@ npm-build-linux-arm64: ensure-builder check-binaries
 		--build-arg PLATFORM=linux-arm64 \
 		--build-arg NODE_OS=linux \
 		--build-arg NODE_ARCH=arm64 \
-		--build-arg NODE_VERSION=$(VERSION) \
+		--build-arg NODE_VERSION=$(NPM_VERSION) \
 		.
 
 npm-build-linux-x64: ensure-builder check-binaries
@@ -138,7 +140,7 @@ npm-build-linux-x64: ensure-builder check-binaries
 		--build-arg PLATFORM=linux-x64 \
 		--build-arg NODE_OS=linux \
 		--build-arg NODE_ARCH=x64 \
-		--build-arg NODE_VERSION=$(VERSION) \
+		--build-arg NODE_VERSION=$(NPM_VERSION) \
 		.
 
 # Build NPM packages using docker-bake (alternative)

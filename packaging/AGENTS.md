@@ -259,14 +259,14 @@ The `.github/workflows/publish-packages.yaml` workflow automates the entire proc
 Via GitHub CLI:
 
 ```bash
-gh workflow run publish-packages.yaml -f tag=v1.17.2-build.2
+gh workflow run publish-packages.yaml -f tag=v1.17.2.post2
 ```
 
 Via GitHub Web UI:
 
 1. Go to Actions → "Publish NPM and PyPI Packages"
 2. Click "Run workflow"
-3. Enter tag (e.g., `v1.17.2-build.2`)
+3. Enter tag (e.g., `v1.17.2.post2`)
 
 ### Required Secrets
 

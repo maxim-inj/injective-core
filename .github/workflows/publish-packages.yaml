@@ -128,6 +128,8 @@ jobs:
             NPM_VERSION="${BASH_REMATCH[1]}"
           elif [[ "$NPM_VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-post\.[0-9]+$ ]]; then
             NPM_VERSION="${BASH_REMATCH[1]}"
+          elif [[ "$NPM_VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+)\.post[0-9]+$ ]]; then
+            NPM_VERSION="${BASH_REMATCH[1]}"
           fi
           
           docker buildx build \
@@ -236,6 +238,8 @@ jobs:
             PYPI_VERSION="${BASH_REMATCH[1]}.post${BASH_REMATCH[2]}"
           elif [[ "$PYPI_VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-post\.([0-9]+)$ ]]; then
             PYPI_VERSION="${BASH_REMATCH[1]}.post${BASH_REMATCH[2]}"
+          elif [[ "$PYPI_VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+)\.post([0-9]+)$ ]]; then
+            PYPI_VERSION="${BASH_REMATCH[1]}.post${BASH_REMATCH[2]}"
           elif [[ "$PYPI_VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-b\.?([0-9]+)$ ]]; then
             PYPI_VERSION="${BASH_REMATCH[1]}b${BASH_REMATCH[2]}"
           elif [[ "$PYPI_VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-rc\.?([0-9]+)$ ]]; then
@@ -334,11 +338,14 @@ jobs:
             NPM_TAG="${BASH_REMATCH[1]}.post${BASH_REMATCH[2]}"
           elif [[ "$VERSION_NO_V" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-post\.([0-9]+)$ ]]; then
             NPM_TAG="${BASH_REMATCH[1]}.post${BASH_REMATCH[2]}"
+          elif [[ "$VERSION_NO_V" =~ ^([0-9]+\.[0-9]+\.[0-9]+)\.post([0-9]+)$ ]]; then
+            NPM_TAG="${BASH_REMATCH[1]}.post${BASH_REMATCH[2]}"
           fi
 
           total=0
           published=0
           skipped=0
+          tagged=0
 
           publish_pkg() {
             local dir="$1"
@@ -357,6 +364,11 @@ jobs:
             if npm view "${name}@${version}" >/dev/null 2>&1; then
               echo "Skipping ${name}@${version} (already published)"
               skipped=$((skipped + 1))
+              if [ -n "$NPM_TAG" ]; then
+                echo "Ensuring dist-tag ${NPM_TAG} -> ${name}@${version}"
+                npm dist-tag add "${name}@${version}" "$NPM_TAG"
+                tagged=$((tagged + 1))
+              fi
             else
               local tag_args=()
               local tag="$NPM_TAG"
@@ -404,8 +416,8 @@ jobs:
             exit 1
           fi
 
-          if [ "$published" -eq 0 ] && [ "$skipped" -eq "$total" ]; then
-            echo "Error: all NPM packages were skipped (already published)"
+          if [ "$published" -eq 0 ] && [ "$tagged" -eq 0 ] && [ "$skipped" -eq "$total" ]; then
+            echo "Error: all NPM packages were skipped (already published) and no tags were updated"
             exit 1
           fi
 
