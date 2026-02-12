@@ -1,13 +1,17 @@
 package keeper
 
 import (
+	"context"
 	"fmt"
 
 	"cosmossdk.io/math"
 	storetypes "cosmossdk.io/store/types"
+	"github.com/InjectiveLabs/metrics"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/ethereum/go-ethereum/common"
 
-	exchangev2types "github.com/InjectiveLabs/injective-core/injective-chain/modules/exchange/types/v2"
+	"github.com/InjectiveLabs/injective-core/injective-chain/modules/exchange/types"
+	"github.com/InjectiveLabs/injective-core/injective-chain/modules/exchange/types/v2"
 )
 
 var (
@@ -40,7 +44,7 @@ var (
 //nolint:revive //this is fine
 func DetermineGas(msg sdk.Msg) uint64 {
 	switch msg := msg.(type) {
-	case *exchangev2types.MsgCreateSpotLimitOrder:
+	case *v2.MsgCreateSpotLimitOrder:
 		requiredGas := MsgCreateSpotLimitOrderGas
 		if msg.Order.OrderType.IsPostOnly() {
 			requiredGas = MsgCreateSpotLimitPostOnlyOrderGas
@@ -49,11 +53,11 @@ func DetermineGas(msg sdk.Msg) uint64 {
 			requiredGas = storetypes.Gas(GTBOrdersGasMultiplier.Mul(math.LegacyNewDec(int64(requiredGas))).TruncateInt64())
 		}
 		return requiredGas
-	case *exchangev2types.MsgCreateSpotMarketOrder:
+	case *v2.MsgCreateSpotMarketOrder:
 		return MsgCreateSpotMarketOrderGas
-	case *exchangev2types.MsgCancelSpotOrder:
+	case *v2.MsgCancelSpotOrder:
 		return MsgCancelSpotOrderGas
-	case *exchangev2types.MsgBatchCreateSpotLimitOrders:
+	case *v2.MsgBatchCreateSpotLimitOrders:
 		sum := uint64(0)
 		for _, order := range msg.Orders {
 			requiredGas := MsgCreateSpotLimitOrderGas
@@ -67,9 +71,9 @@ func DetermineGas(msg sdk.Msg) uint64 {
 		}
 
 		return sum
-	case *exchangev2types.MsgBatchCancelSpotOrders:
+	case *v2.MsgBatchCancelSpotOrders:
 		panic("developer error: MsgBatchCancelSpotOrders gas already determined in msg server impl")
-	case *exchangev2types.MsgCreateDerivativeLimitOrder:
+	case *v2.MsgCreateDerivativeLimitOrder:
 		requiredGas := MsgCreateDerivativeLimitOrderGas
 		if msg.Order.OrderType.IsPostOnly() {
 			requiredGas = MsgCreateDerivativeLimitPostOnlyOrderGas
@@ -78,11 +82,11 @@ func DetermineGas(msg sdk.Msg) uint64 {
 			requiredGas = storetypes.Gas(GTBOrdersGasMultiplier.Mul(math.LegacyNewDec(int64(requiredGas))).TruncateInt64())
 		}
 		return requiredGas
-	case *exchangev2types.MsgCreateDerivativeMarketOrder:
+	case *v2.MsgCreateDerivativeMarketOrder:
 		return MsgCreateDerivativeMarketOrderGas
-	case *exchangev2types.MsgCancelDerivativeOrder:
+	case *v2.MsgCancelDerivativeOrder:
 		return MsgCancelDerivativeOrderGas
-	case *exchangev2types.MsgBatchCreateDerivativeLimitOrders:
+	case *v2.MsgBatchCreateDerivativeLimitOrders:
 		sum := uint64(0)
 		for _, order := range msg.Orders {
 			requiredGas := MsgCreateDerivativeLimitOrderGas
@@ -96,9 +100,9 @@ func DetermineGas(msg sdk.Msg) uint64 {
 		}
 
 		return sum
-	case *exchangev2types.MsgBatchCancelDerivativeOrders:
+	case *v2.MsgBatchCancelDerivativeOrders:
 		panic("developer error: MsgBatchCancelDerivativeOrders gas already determined in msg server impl")
-	case *exchangev2types.MsgCreateBinaryOptionsLimitOrder:
+	case *v2.MsgCreateBinaryOptionsLimitOrder:
 		requiredGas := MsgCreateBinaryOptionsLimitOrderGas
 		if msg.Order.OrderType.IsPostOnly() {
 			requiredGas = MsgCreateBinaryOptionsLimitPostOnlyOrderGas
@@ -107,26 +111,334 @@ func DetermineGas(msg sdk.Msg) uint64 {
 			requiredGas = storetypes.Gas(GTBOrdersGasMultiplier.Mul(math.LegacyNewDec(int64(requiredGas))).TruncateInt64())
 		}
 		return requiredGas
-	case *exchangev2types.MsgCreateBinaryOptionsMarketOrder:
+	case *v2.MsgCreateBinaryOptionsMarketOrder:
 		return MsgCreateBinaryOptionsMarketOrderGas
-	case *exchangev2types.MsgCancelBinaryOptionsOrder:
+	case *v2.MsgCancelBinaryOptionsOrder:
 		return MsgCancelBinaryOptionsOrderGas
-	case *exchangev2types.MsgBatchCancelBinaryOptionsOrders:
+	case *v2.MsgBatchCancelBinaryOptionsOrders:
 		panic("developer error: MsgBatchCancelBinaryOptionsOrders gas already determined in msg server impl")
 	//	MISCELLANEOUS //
-	case *exchangev2types.MsgDeposit:
+	case *v2.MsgDeposit:
 		return MsgDepositGas
-	case *exchangev2types.MsgWithdraw:
+	case *v2.MsgWithdraw:
 		return MsgWithdrawGas
-	case *exchangev2types.MsgSubaccountTransfer:
+	case *v2.MsgSubaccountTransfer:
 		return MsgSubaccountTransferGas
-	case *exchangev2types.MsgExternalTransfer:
+	case *v2.MsgExternalTransfer:
 		return MsgExternalTransferGas
-	case *exchangev2types.MsgIncreasePositionMargin:
+	case *v2.MsgIncreasePositionMargin:
 		return MsgIncreasePositionMarginGas
-	case *exchangev2types.MsgDecreasePositionMargin:
+	case *v2.MsgDecreasePositionMargin:
 		return MsgDecreasePositionMarginGas
 	default:
 		panic(fmt.Sprintf("developer error: unknown message type: %T", msg))
 	}
+}
+
+//nolint:revive // this is fine
+func (k *Keeper) FixedGasBatchUpdateOrders(
+	c context.Context,
+	msg *v2.MsgBatchUpdateOrders,
+) (*v2.MsgBatchUpdateOrdersResponse, error) {
+	//	no clever method shadowing here
+
+	cc, doneFn := metrics.ReportFuncCallAndTimingCtx(c, k.svcTags)
+	defer doneFn()
+
+	ctx := sdk.UnwrapSDKContext(cc)
+	sender, _ := sdk.AccAddressFromBech32(msg.Sender)
+
+	subaccountId := msg.SubaccountId
+
+	// reference the gas meter early to consume gas later on in loop iterations
+	gasMeter := ctx.GasMeter()
+	gasConsumedBefore := gasMeter.GasConsumed()
+
+	defer func() {
+		totalGas := gasMeter.GasConsumed()
+		k.Logger(ctx).Info("MsgBatchUpdateOrders",
+			"gas_ante", gasConsumedBefore,
+			"gas_msg", totalGas-gasConsumedBefore,
+			"gas_total", totalGas,
+			"sender", msg.Sender,
+		)
+	}()
+
+	ctx = ctx.WithGasMeter(storetypes.NewInfiniteGasMeter())
+
+	/**	1. Cancel all **/
+	// NOTE: provided subaccountID indicates cancelling all orders in a market for given market IDs
+	if isCancelAll := subaccountId != ""; isCancelAll {
+		//  Derive the subaccountID.
+		subaccountID := types.MustGetSubaccountIDOrDeriveFromNonce(sender, subaccountId)
+
+		/**	1. a) Cancel all spot limit orders in markets **/
+		for _, spotMarketIdToCancelAll := range msg.SpotMarketIdsToCancelAll {
+			marketID := common.HexToHash(spotMarketIdToCancelAll)
+			market := k.GetSpotMarketByID(ctx, marketID)
+			if market == nil {
+				continue
+			}
+
+			if !market.StatusSupportsOrderCancellations() {
+				k.Logger(ctx).Debug("failed to cancel all spot limit orders", "marketID", marketID.Hex())
+				continue
+			}
+
+			// k.CancelAllSpotLimitOrders(ctx, market, subaccountID, marketID)
+			// get all orders to cancel
+			var (
+				restingBuyOrders = k.GetAllSpotLimitOrdersBySubaccountAndMarket(
+					ctx,
+					marketID,
+					true,
+					subaccountID,
+				)
+				restingSellOrders = k.GetAllSpotLimitOrdersBySubaccountAndMarket(
+					ctx,
+					marketID,
+					false,
+					subaccountID,
+				)
+				transientBuyOrders = k.GetAllTransientSpotLimitOrdersBySubaccountAndMarket(
+					ctx,
+					marketID,
+					true,
+					subaccountID,
+				)
+				transientSellOrders = k.GetAllTransientSpotLimitOrdersBySubaccountAndMarket(
+					ctx,
+					marketID,
+					false,
+					subaccountID,
+				)
+			)
+
+			// consume gas
+			gasMeter.ConsumeGas(MsgCancelSpotOrderGas*uint64(len(restingBuyOrders)), "")
+			gasMeter.ConsumeGas(MsgCancelSpotOrderGas*uint64(len(restingSellOrders)), "")
+			gasMeter.ConsumeGas(MsgCancelSpotOrderGas*uint64(len(transientBuyOrders)), "")
+			gasMeter.ConsumeGas(MsgCancelSpotOrderGas*uint64(len(transientSellOrders)), "")
+		}
+
+		/**	1. b) Cancel all derivative limit orders in markets **/
+		for _, derivativeMarketIdToCancelAll := range msg.DerivativeMarketIdsToCancelAll {
+			marketID := common.HexToHash(derivativeMarketIdToCancelAll)
+			market := k.GetDerivativeMarketByID(ctx, marketID)
+			if market == nil {
+				k.Logger(ctx).Debug(
+					"failed to cancel all derivative limit orders for non-existent market",
+					"marketID",
+					marketID.Hex(),
+				)
+				continue
+			}
+
+			if !market.StatusSupportsOrderCancellations() {
+				k.Logger(ctx).Debug(
+					"failed to cancel all derivative limit orders for market whose status doesnt support cancellations",
+					"marketID",
+					marketID.Hex(),
+				)
+				continue
+			}
+
+			var (
+				restingBuyOrderHashes = k.GetAllRestingDerivativeLimitOrderHashesBySubaccountAndMarket(
+					ctx,
+					marketID,
+					true,
+					subaccountID,
+				)
+				restingSellOrderHashes = k.GetAllRestingDerivativeLimitOrderHashesBySubaccountAndMarket(
+					ctx,
+					marketID,
+					false, subaccountID,
+				)
+				buyOrders = k.GetAllTransientDerivativeLimitOrdersByMarketDirectionBySubaccountID(
+					ctx,
+					marketID,
+					&subaccountID,
+					true,
+				)
+				sellOrders = k.GetAllTransientDerivativeLimitOrdersByMarketDirectionBySubaccountID(
+					ctx,
+					marketID,
+					&subaccountID,
+					false,
+				)
+				higherMarketOrders = k.GetAllConditionalOrderHashesBySubaccountAndMarket(
+					ctx,
+					marketID,
+					true,
+					true,
+					subaccountID,
+				)
+				lowerMarketOrders = k.GetAllConditionalOrderHashesBySubaccountAndMarket(
+					ctx,
+					marketID,
+					false,
+					true,
+					subaccountID,
+				)
+				higherLimitOrders = k.GetAllConditionalOrderHashesBySubaccountAndMarket(
+					ctx,
+					marketID,
+					true,
+					false,
+					subaccountID,
+				)
+				lowerLimitOrders = k.GetAllConditionalOrderHashesBySubaccountAndMarket(
+					ctx,
+					marketID,
+					false,
+					false,
+					subaccountID,
+				)
+			)
+
+			// consume gas
+			gasMeter.ConsumeGas(MsgCancelDerivativeOrderGas*uint64(len(restingBuyOrderHashes)), "")
+			gasMeter.ConsumeGas(MsgCancelDerivativeOrderGas*uint64(len(restingSellOrderHashes)), "")
+			gasMeter.ConsumeGas(MsgCancelDerivativeOrderGas*uint64(len(buyOrders)), "")
+			gasMeter.ConsumeGas(MsgCancelDerivativeOrderGas*uint64(len(sellOrders)), "")
+			gasMeter.ConsumeGas(MsgCancelDerivativeOrderGas*uint64(len(higherMarketOrders)), "")
+			gasMeter.ConsumeGas(MsgCancelDerivativeOrderGas*uint64(len(lowerMarketOrders)), "")
+			gasMeter.ConsumeGas(MsgCancelDerivativeOrderGas*uint64(len(higherLimitOrders)), "")
+			gasMeter.ConsumeGas(MsgCancelDerivativeOrderGas*uint64(len(lowerLimitOrders)), "")
+		}
+
+		/**	1. c) Cancel all bo limit orders in markets **/
+		for _, binaryOptionsMarketIdToCancelAll := range msg.BinaryOptionsMarketIdsToCancelAll {
+			marketID := common.HexToHash(binaryOptionsMarketIdToCancelAll)
+			market := k.GetBinaryOptionsMarketByID(ctx, marketID)
+			if market == nil {
+				k.Logger(ctx).Debug(
+					"failed to cancel all binary options limit orders for non-existent market",
+					"marketID",
+					marketID.Hex(),
+				)
+				continue
+			}
+
+			if !market.StatusSupportsOrderCancellations() {
+				k.Logger(ctx).Debug(
+					"failed to cancel all binary options limit orders for market whose status doesnt support cancellations",
+					"marketID",
+					marketID.Hex(),
+				)
+				continue
+			}
+
+			var (
+				restingBuyOrderHashes = k.GetAllRestingDerivativeLimitOrderHashesBySubaccountAndMarket(
+					ctx,
+					marketID,
+					true,
+					subaccountID,
+				)
+				restingSellOrderHashes = k.GetAllRestingDerivativeLimitOrderHashesBySubaccountAndMarket(
+					ctx,
+					marketID,
+					false,
+					subaccountID,
+				)
+				buyOrders = k.GetAllTransientDerivativeLimitOrdersByMarketDirectionBySubaccountID(
+					ctx,
+					marketID,
+					&subaccountID,
+					true,
+				)
+				sellOrders = k.GetAllTransientDerivativeLimitOrdersByMarketDirectionBySubaccountID(
+					ctx,
+					marketID,
+					&subaccountID,
+					false,
+				)
+				higherMarketOrders = k.GetAllConditionalOrderHashesBySubaccountAndMarket(
+					ctx,
+					marketID,
+					true,
+					true,
+					subaccountID,
+				)
+				lowerMarketOrders = k.GetAllConditionalOrderHashesBySubaccountAndMarket(
+					ctx,
+					marketID,
+					false,
+					true,
+					subaccountID,
+				)
+				higherLimitOrders = k.GetAllConditionalOrderHashesBySubaccountAndMarket(
+					ctx,
+					marketID,
+					true,
+					false,
+					subaccountID,
+				)
+				lowerLimitOrders = k.GetAllConditionalOrderHashesBySubaccountAndMarket(
+					ctx,
+					marketID,
+					false,
+					false,
+					subaccountID,
+				)
+			)
+
+			gasMeter.ConsumeGas(MsgCancelBinaryOptionsOrderGas*uint64(len(restingBuyOrderHashes)), "")
+			gasMeter.ConsumeGas(MsgCancelBinaryOptionsOrderGas*uint64(len(restingSellOrderHashes)), "")
+			gasMeter.ConsumeGas(MsgCancelBinaryOptionsOrderGas*uint64(len(buyOrders)), "")
+			gasMeter.ConsumeGas(MsgCancelBinaryOptionsOrderGas*uint64(len(sellOrders)), "")
+			gasMeter.ConsumeGas(MsgCancelBinaryOptionsOrderGas*uint64(len(higherMarketOrders)), "")
+			gasMeter.ConsumeGas(MsgCancelBinaryOptionsOrderGas*uint64(len(lowerMarketOrders)), "")
+			gasMeter.ConsumeGas(MsgCancelBinaryOptionsOrderGas*uint64(len(higherLimitOrders)), "")
+			gasMeter.ConsumeGas(MsgCancelBinaryOptionsOrderGas*uint64(len(lowerLimitOrders)), "")
+		}
+	}
+
+	gasMeter.ConsumeGas(MsgCancelSpotOrderGas*uint64(len(msg.SpotOrdersToCancel)), "")
+	gasMeter.ConsumeGas(MsgCancelDerivativeOrderGas*uint64(len(msg.DerivativeOrdersToCancel)), "")
+	gasMeter.ConsumeGas(MsgCancelBinaryOptionsOrderGas*uint64(len(msg.BinaryOptionsOrdersToCancel)), "")
+
+	gasMeter.ConsumeGas(MsgCreateSpotMarketOrderGas*uint64(len(msg.SpotMarketOrdersToCreate)), "")
+	gasMeter.ConsumeGas(MsgCreateDerivativeMarketOrderGas*uint64(len(msg.DerivativeMarketOrdersToCreate)), "")
+	gasMeter.ConsumeGas(MsgCreateBinaryOptionsMarketOrderGas*uint64(len(msg.BinaryOptionsMarketOrdersToCreate)), "")
+
+	// For limit orders creation we determine the gas using the DetermineGas function to reuse the logic
+	for _, spotOrder := range msg.SpotOrdersToCreate {
+		dummySpotOrderMessage := v2.MsgCreateSpotLimitOrder{
+			Order: *spotOrder,
+		}
+		gasMeter.ConsumeGas(DetermineGas(&dummySpotOrderMessage), "")
+	}
+	for _, derivativeOrder := range msg.DerivativeOrdersToCreate {
+		dummyDerivativeOrderMessage := v2.MsgCreateDerivativeLimitOrder{
+			Order: *derivativeOrder,
+		}
+		gasMeter.ConsumeGas(DetermineGas(&dummyDerivativeOrderMessage), "")
+	}
+	for _, order := range msg.BinaryOptionsOrdersToCreate {
+		dummyBinaryOptionsOrderMessage := v2.MsgCreateBinaryOptionsLimitOrder{
+			Order: *order,
+		}
+		gasMeter.ConsumeGas(DetermineGas(&dummyBinaryOptionsOrderMessage), "")
+	}
+
+	return k.ExecuteBatchUpdateOrders(
+		ctx,
+		sender,
+		msg.SubaccountId,
+		msg.SpotMarketIdsToCancelAll,
+		msg.DerivativeMarketIdsToCancelAll,
+		msg.BinaryOptionsMarketIdsToCancelAll,
+		msg.SpotOrdersToCancel,
+		msg.DerivativeOrdersToCancel,
+		msg.BinaryOptionsOrdersToCancel,
+		msg.SpotOrdersToCreate,
+		msg.DerivativeOrdersToCreate,
+		msg.BinaryOptionsOrdersToCreate,
+		msg.SpotMarketOrdersToCreate,
+		msg.DerivativeMarketOrdersToCreate,
+		msg.BinaryOptionsMarketOrdersToCreate,
+	)
 }

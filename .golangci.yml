@@ -37,7 +37,7 @@ linters:
         - name: cognitive-complexity
           arguments:
             - 20
-          disabled: false
+          disabled: true
         - name: defer
           disabled: true
   exclusions:

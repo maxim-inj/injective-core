@@ -4,9 +4,9 @@ import (
 	"fmt"
 
 	"cosmossdk.io/math"
-	mempool1559 "github.com/InjectiveLabs/injective-core/injective-chain/modules/txfees/keeper/mempool-1559"
-	cmtproto "github.com/cometbft/cometbft/api/cometbft/types/v1"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+
+	mempool1559 "github.com/InjectiveLabs/injective-core/injective-chain/modules/txfees/keeper/mempool-1559"
 )
 
 func (k *Keeper) RefreshMempool1559Parameters(ctx sdk.Context) {
@@ -40,32 +40,29 @@ func (k *Keeper) CheckAndSetTargetGas(ctx sdk.Context) error {
 		return fmt.Errorf("txfees: failed to get consensus parameters: %w", err)
 	}
 
-	// If cachedConsParams is empty, set equal to consParams and set the target gas.
-	if k.cachedConsParams.Equal(cmtproto.ConsensusParams{}) {
-		k.cachedConsParams = *consParams.Params
-
-		// Check if cachedConsParams.Block is nil to prevent panic
-		if k.cachedConsParams.Block == nil || k.cachedConsParams.Block.MaxGas <= 0 {
-			return nil
+	// Check if Block params are nil or MaxGas is invalid/unlimited
+	if consParams.Params.Block == nil || consParams.Params.Block.MaxGas <= 0 {
+		if consParams.Params.Block != nil && consParams.Params.Block.MaxGas == 0 {
+			// This should never happen in practice as the chain wouldn't process any txs
+			k.Logger(ctx).Error("CheckAndSetTargetGas: MaxGas is 0 - chain cannot process transactions")
 		}
-
-		k.CurFeeState.TargetGas = k.calculateTargetGas(k.cachedConsParams.Block.MaxGas)
+		// Use default target gas to avoid division by zero in UpdateBaseFee
+		// For MaxGas == -1 (unlimited), this maintains normal EIP-1559 operation
+		k.CurFeeState.TargetGas = mempool1559.DefaultFeeState().TargetGas
 		return nil
 	}
 
-	// If the consensus params have changed, check if it was maxGas that changed. If so, update the target gas.
-	if consParams.Params.Block.MaxGas == k.cachedConsParams.Block.MaxGas || consParams.Params.Block.MaxGas == -1 {
-		return nil
-	}
-
+	// Always update the target gas as TargetBlockSpacePercent might have changed even if MaxGas hasn't.
 	k.CurFeeState.TargetGas = k.calculateTargetGas(consParams.Params.Block.MaxGas)
-	k.cachedConsParams = *consParams.Params
 
 	return nil
 }
 
 func (k *Keeper) calculateTargetGas(maxGas int64) int64 {
-	return k.CurFeeState.TargetBlockSpacePercent.Mul(
+	targetGas := k.CurFeeState.TargetBlockSpacePercent.Mul(
 		math.LegacyNewDec(maxGas),
 	).TruncateInt().Int64()
+
+	// Prevent division by zero in UpdateBaseFee by ensuring TargetGas is never less than 1
+	return max(targetGas, 1)
 }

@@ -4,40 +4,38 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"io"
 	"math/big"
-	"strconv"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
 
 	"cosmossdk.io/math"
-	clienttx "github.com/cosmos/cosmos-sdk/client/tx"
-	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
+	"github.com/InjectiveLabs/etherman/deployer"
+	peggytypes "github.com/InjectiveLabs/sdk-go/chain/peggy/types"
+	tokenfactorytypes "github.com/InjectiveLabs/sdk-go/chain/tokenfactory/types"
 	"github.com/cosmos/cosmos-sdk/crypto/hd"
 	"github.com/cosmos/cosmos-sdk/crypto/keyring"
 	sdktypes "github.com/cosmos/cosmos-sdk/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
-	govv1 "github.com/cosmos/cosmos-sdk/x/gov/types/v1"
-	govv1beta1 "github.com/cosmos/cosmos-sdk/x/gov/types/v1beta1"
 	transfertypes "github.com/cosmos/ibc-go/v8/modules/apps/transfer/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/stretchr/testify/require"
-
 	"github.com/strangelove-ventures/interchaintest/v8"
 	"github.com/strangelove-ventures/interchaintest/v8/chain/cosmos"
 	"github.com/strangelove-ventures/interchaintest/v8/chain/ethereum"
 	"github.com/strangelove-ventures/interchaintest/v8/chain/ethereum/geth"
 	"github.com/strangelove-ventures/interchaintest/v8/ibc"
 	"github.com/strangelove-ventures/interchaintest/v8/testutil"
-
-	"github.com/InjectiveLabs/etherman/deployer"
-	peggytypes "github.com/InjectiveLabs/sdk-go/chain/peggy/types"
-	tokenfactorytypes "github.com/InjectiveLabs/sdk-go/chain/tokenfactory/types"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 const (
@@ -60,7 +58,7 @@ type PeggyContractSuite struct {
 	StartHeight      uint64
 }
 
-// GetCurrentValset returns the current validator set on Injective
+// GetCurrentValset returns the current validator set on Injective using gRPC.
 func GetCurrentValset(
 	t *testing.T,
 	ctx context.Context,
@@ -68,19 +66,13 @@ func GetCurrentValset(
 ) *peggytypes.Valset {
 	t.Helper()
 
-	cmd := []string{
-		"peggy",
-		"current-valset",
-		"--chain-id",
-		chain.Config().ChainID,
-	}
+	conn, err := grpc.NewClient(chain.GetHostGRPCAddress(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err, "failed to create gRPC connection")
+	defer conn.Close()
 
-	bz, _, err := chain.GetNode().ExecQuery(ctx, cmd...)
-	require.NoError(t, err)
-	require.NotNil(t, bz)
-
-	var resp peggytypes.QueryCurrentValsetResponse
-	require.NoError(t, chain.Config().EncodingConfig.Codec.UnmarshalJSON(bz, &resp))
+	queryClient := peggytypes.NewQueryClient(conn)
+	resp, err := QueryRPC(ctx, queryClient.CurrentValset, &peggytypes.QueryCurrentValsetRequest{})
+	require.NoError(t, err, "error querying current valset")
 
 	return resp.Valset
 }
@@ -88,35 +80,32 @@ func GetCurrentValset(
 func RegisterOrchestrator(
 	t *testing.T,
 	ctx context.Context,
+	chain *cosmos.CosmosChain,
 	node *cosmos.ChainNode,
 	orchestratorAddress,
 	ethereumAddress string,
 ) {
 	t.Helper()
 
-	validator, err := node.AccountKeyBech32(ctx, "validator")
-	require.NoError(t, err)
+	txHash, err := BroadcastMsgWithKeyringAsync(ctx, chain, node, ValidatorKeyName, DefaultGas, func(validatorAddr sdktypes.AccAddress) ([]sdktypes.Msg, error) {
+		return []sdktypes.Msg{
+			&peggytypes.MsgSetOrchestratorAddresses{
+				Sender:       validatorAddr.String(),
+				Orchestrator: orchestratorAddress,
+				EthAddress:   ethereumAddress,
+			},
+		}, nil
+	})
+	require.NoError(t, err, "failed to broadcast register orchestrator tx")
 
-	cmd := []string{
-		"peggy",
-		"set-orchestrator-address",
-		validator,
-		orchestratorAddress,
-		ethereumAddress,
-	}
+	txResp, err := QueryTxRPC(ctx, node, txHash)
+	require.NoError(t, err, "failed to wait for register orchestrator tx")
+	require.Equal(t, uint32(0), txResp.ErrorCode, "register orchestrator tx failed")
 
-	txHash, err := node.ExecTx(ctx, "validator", cmd...)
-	require.NoError(t, err)
-
-	txResp, err := QueryTx(ctx, node, txHash)
-	require.NoError(t, err)
-	require.Equal(t, uint32(0), txResp.ErrorCode)
-
-	err = testutil.WaitForBlocks(ctx, 1, node.Chain)
+	err = testutil.WaitForBlocks(ctx, 1, chain)
 	require.NoError(t, err)
 
 	t.Log("registered orchestrator",
-		"validator_address="+validator,
 		"orchestrator_address="+orchestratorAddress,
 		"eth_address="+ethereumAddress,
 	)
@@ -347,44 +336,11 @@ func UpdatePeggyParams(
 		Params:    *params,
 	}
 
-	anyy, err := codectypes.NewAnyWithValue(msg)
-	require.NoError(t, err)
-
 	funds := math.NewIntWithDecimal(1_000_000, 18)
 	proposer, err := interchaintest.GetAndFundTestUserWithMnemonic(ctx, t.Name(), NewMnemonic(), funds, chain)
 	require.NoError(t, err)
 
-	b := cosmos.NewBroadcaster(t, chain)
-	b.ConfigureFactoryOptions(func(f clienttx.Factory) clienttx.Factory {
-		return f.WithGas(500_000)
-	})
-
-	proposal := &govv1.MsgSubmitProposal{
-		Messages:       []*codectypes.Any{anyy},
-		InitialDeposit: sdktypes.NewCoins(sdktypes.NewCoin(chain.Config().Denom, math.NewIntWithDecimal(1_000, 18))),
-		Proposer:       proposer.FormattedAddress(),
-		Title:          "Update Peggy module Params",
-		Summary:        "Peggy contract deployment",
-		Expedited:      false,
-	}
-
-	txResp, err := cosmos.BroadcastTx(ctx, b, proposer, proposal)
-	require.NoError(t, err)
-	require.Equal(t, uint32(0), txResp.Code, "failed tx: %s", txResp.RawLog)
-
-	tx, err := QueryProposalTx(ctx, chain.Nodes()[0], txResp.TxHash)
-	require.NoError(t, err)
-
-	proposalID, err := strconv.ParseUint(tx.ProposalID, 10, 64)
-	require.NoError(t, err)
-
-	require.NoError(t, chain.VoteOnProposalAllValidators(ctx, proposalID, cosmos.ProposalVoteYes))
-
-	height, err := chain.Height(ctx)
-	require.NoError(t, err)
-
-	_, err = cosmos.PollForProposalStatus(ctx, chain, height, height+60, proposalID, govv1beta1.StatusPassed)
-	require.NoError(t, err)
+	MustSucceedProposal(t, chain, ctx, proposer, msg, "Update Peggy module Params")
 
 	t.Log("peggy params updated")
 }
@@ -426,6 +382,7 @@ func GetPeggoEnvDefaults(
 		"PEGGO_STATSD_STUCK_DUR=5m",
 		"PEGGO_STATSD_MOCKING=false",
 		"PEGGO_STATSD_DISABLED=true",
+		"PEGGO_HEALTH_CHECK_PORT=7070",
 		// shorten test time
 		"PEGGO_LOOP_DURATION=10s",
 		"PEGGO_RELAYER_LOOP_DURATION=15s",
@@ -487,19 +444,13 @@ func GetPeggyModuleState(
 ) *peggytypes.GenesisState {
 	t.Helper()
 
-	cmd := []string{
-		"peggy",
-		"module-state",
-		"--chain-id",
-		chain.Config().ChainID,
-	}
+	conn, err := grpc.NewClient(chain.GetHostGRPCAddress(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err, "failed to create gRPC connection")
+	defer conn.Close()
 
-	bz, _, err := chain.GetNode().ExecQuery(ctx, cmd...)
-	require.NoError(t, err)
-	require.NotNil(t, bz)
-
-	var resp peggytypes.QueryModuleStateResponse
-	require.NoError(t, chain.Config().EncodingConfig.Codec.UnmarshalJSON(bz, &resp))
+	queryClient := peggytypes.NewQueryClient(conn)
+	resp, err := QueryRPC(ctx, queryClient.PeggyModuleState, &peggytypes.QueryModuleStateRequest{})
+	require.NoError(t, err, "error querying peggy module state")
 
 	return resp.State
 }
@@ -587,17 +538,15 @@ func SendToEth(
 ) uint64 {
 	t.Helper()
 
-	cmd := []string{
-		"peggy",
-		"send-to-eth",
-		receiver.FormattedAddress(),
-		coin.String(),
-		fee.String(),
+	msg := &peggytypes.MsgSendToEth{
+		Sender:    sender.FormattedAddress(),
+		EthDest:   receiver.FormattedAddress(),
+		Amount:    coin,
+		BridgeFee: fee,
 	}
 
-	_, err := chain.GetNode().ExecTx(ctx, sender.KeyName(), cmd...)
-	require.NoError(t, err)
-	time.Sleep(1 * time.Second)
+	resp := BroadcastTxBlock(t, ctx, chain, sender, []cosmos.FactoryOpt{WithGas(DefaultGas)}, msg)
+	require.EqualValues(t, uint32(0), resp.Code, "send to eth tx failed: %s", resp.RawLog)
 
 	return GetPeggyModuleState(t, ctx, chain).LastOutgoingPoolId
 }
@@ -609,19 +558,15 @@ func GetIBCDenomTraces(
 ) *transfertypes.QueryDenomTracesResponse {
 	t.Helper()
 
-	bz, _, err := chain.GetNode().ExecQuery(ctx,
-		"ibc-transfer",
-		"denom-traces",
-		"--chain-id", chain.Config().ChainID,
-	)
+	conn, err := grpc.NewClient(chain.GetHostGRPCAddress(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err, "failed to create gRPC connection")
+	defer conn.Close()
 
-	require.NoError(t, err)
-	require.NotNil(t, bz)
+	queryClient := transfertypes.NewQueryClient(conn)
+	resp, err := QueryRPC(ctx, queryClient.DenomTraces, &transfertypes.QueryDenomTracesRequest{})
+	require.NoError(t, err, "error querying IBC denom traces")
 
-	var resp transfertypes.QueryDenomTracesResponse
-	require.NoError(t, chain.Config().EncodingConfig.Codec.UnmarshalJSON(bz, &resp))
-
-	return &resp
+	return resp
 }
 
 func SetDenomMetadata(
@@ -637,43 +582,11 @@ func SetDenomMetadata(
 		Metadata: *metadata,
 	}
 
-	anyy, err := codectypes.NewAnyWithValue(msg)
-	require.NoError(t, err)
-
 	funds := math.NewIntWithDecimal(1_000_000, 18)
 	proposer, err := interchaintest.GetAndFundTestUserWithMnemonic(ctx, t.Name(), NewMnemonic(), funds, chain)
 	require.NoError(t, err)
 
-	b := cosmos.NewBroadcaster(t, chain)
-	b.ConfigureFactoryOptions(func(f clienttx.Factory) clienttx.Factory {
-		return f.WithGas(500_000)
-	})
-
-	proposal := &govv1.MsgSubmitProposal{
-		Messages:       []*codectypes.Any{anyy},
-		InitialDeposit: sdktypes.NewCoins(sdktypes.NewCoin(chain.Config().Denom, math.NewIntWithDecimal(1_000, 18))),
-		Proposer:       proposer.FormattedAddress(),
-		Title:          "Update IBC denom metadata",
-		Summary:        "Correctly populate IBC denom metadata",
-		Expedited:      false,
-	}
-
-	txResp, err := cosmos.BroadcastTx(ctx, b, proposer, proposal)
-	require.NoError(t, err)
-	require.Equal(t, uint32(0), txResp.Code, "failed tx: %s", txResp.RawLog)
-
-	tx, err := QueryProposalTx(ctx, chain.Nodes()[0], txResp.TxHash)
-	require.NoError(t, err)
-
-	proposalID, err := strconv.ParseUint(tx.ProposalID, 10, 64)
-	require.NoError(t, err)
-	require.NoError(t, chain.VoteOnProposalAllValidators(ctx, proposalID, cosmos.ProposalVoteYes))
-
-	height, err := chain.Height(ctx)
-	require.NoError(t, err)
-
-	_, err = cosmos.PollForProposalStatus(ctx, chain, height, height+60, proposalID, govv1beta1.StatusPassed)
-	require.NoError(t, err)
+	MustSucceedProposal(t, chain, ctx, proposer, msg, "Update IBC denom metadata")
 }
 
 func DeployERC20(
@@ -863,4 +776,38 @@ func ParseERC20DeployedClaim(
 	require.Equal(t, peggytypes.CLAIM_TYPE_ERC20_DEPLOYED.String(), claim.GetType().String())
 
 	return claim.(*peggytypes.MsgERC20DeployedClaim)
+}
+
+type OrchestratorStatus struct {
+	LastObservedEventNonceByNetwork      uint64   `json:"last_observed_event_nonce_by_network"`
+	LastObservedEventNonceByOrchestrator uint64   `json:"last_observed_event_nonce_by_orchestrator"`
+	PendingTxBatchToSign                 uint64   `json:"pending_tx_batch_to_sign"`
+	PendingValidatorSetsToSign           []uint64 `json:"pending_validator_sets_to_sign"`
+	IsPartOfTheCurrentSet                bool     `json:"is_part_of_the_current_set"`
+}
+
+func PeggoHealthCheck(t *testing.T, ctx context.Context, node *cosmos.ChainNode) OrchestratorStatus {
+	t.Helper()
+
+	ports, err := node.Sidecars[0].GetHostPorts(ctx, "7070/tcp")
+	require.NoError(t, err)
+	require.Len(t, ports, 1)
+
+	url := "http://" + ports[0] + "/health"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
+	require.NoError(t, err)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	defer resp.Body.Close()
+
+	var status OrchestratorStatus
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+
+	require.NoError(t, json.Unmarshal(body, &status))
+
+	return status
 }

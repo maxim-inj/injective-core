@@ -2,16 +2,15 @@ package keeper
 
 import (
 	"errors"
-	"math/big"
 
 	sdkerrors "cosmossdk.io/errors"
 	sdkmath "cosmossdk.io/math"
 	"cosmossdk.io/store/prefix"
+	"github.com/InjectiveLabs/metrics"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	gethcommon "github.com/ethereum/go-ethereum/common"
 
 	"github.com/InjectiveLabs/injective-core/injective-chain/modules/peggy/types"
-	"github.com/InjectiveLabs/metrics"
 )
 
 var (
@@ -122,8 +121,11 @@ func (k *Keeper) TrackTokenOutflow(ctx sdk.Context, tokenAddress gethcommon.Addr
 
 	k.SetRateLimit(ctx, rateLimit)
 
-	currentAmount := k.GetMintAmountERC20(ctx, tokenAddress)
-	k.SetMintAmountERC20(ctx, tokenAddress, currentAmount.Sub(currentAmount, out.BigInt()))
+	isCosmosOriginated, _ := k.ERC20ToDenomLookup(ctx, tokenAddress)
+	if !isCosmosOriginated {
+		currentAmount := k.GetMintAmountERC20(ctx, tokenAddress)
+		k.SetMintAmountERC20(ctx, tokenAddress, currentAmount.Sub(out))
+	}
 }
 
 func (k *Keeper) SetRateLimit(ctx sdk.Context, rateLimit *types.RateLimit) {
@@ -157,6 +159,8 @@ func (k *Keeper) DeleteRateLimit(ctx sdk.Context, tokenAddress gethcommon.Addres
 
 	rateLimitStore := prefix.NewStore(ctx.KVStore(k.storeKey), types.RateLimitsKey)
 	rateLimitStore.Delete(tokenAddress.Bytes())
+
+	k.DeleteMintAmountERC20(ctx, tokenAddress)
 }
 
 func (k *Keeper) GetRateLimits(ctx sdk.Context) []*types.RateLimit {
@@ -177,28 +181,45 @@ func (k *Keeper) GetRateLimits(ctx sdk.Context) []*types.RateLimit {
 	return rateLimits
 }
 
-func (k *Keeper) GetMintAmountERC20(ctx sdk.Context, tokenAddress gethcommon.Address) *big.Int {
+func (k *Keeper) GetMintAmountERC20(ctx sdk.Context, tokenAddress gethcommon.Address) sdkmath.Int {
 	ctx, doneFn := metrics.ReportFuncCallAndTimingSdkCtx(ctx, k.svcTags)
 	defer doneFn()
 
 	store := ctx.KVStore(k.storeKey)
 	bz := store.Get(types.GetMintAmountERC20Key(tokenAddress.Bytes()))
 	if len(bz) == 0 {
-		return big.NewInt(0)
+		return sdkmath.ZeroInt()
 	}
 
-	return big.NewInt(0).SetBytes(bz)
+	var amount sdkmath.Int
+	if err := amount.Unmarshal(bz); err != nil {
+		panic(err)
+	}
+
+	return amount
 }
 
-func (k *Keeper) SetMintAmountERC20(ctx sdk.Context, tokenAddress gethcommon.Address, amount *big.Int) {
+func (k *Keeper) SetMintAmountERC20(ctx sdk.Context, tokenAddress gethcommon.Address, amount sdkmath.Int) {
 	ctx, doneFn := metrics.ReportFuncCallAndTimingSdkCtx(ctx, k.svcTags)
 	defer doneFn()
 
 	store := ctx.KVStore(k.storeKey)
-	store.Set(types.GetMintAmountERC20Key(tokenAddress.Bytes()), amount.Bytes())
+	bz, err := amount.Marshal()
+	if err != nil {
+		panic(err)
+	}
+	store.Set(types.GetMintAmountERC20Key(tokenAddress.Bytes()), bz)
 }
 
-func (k *Keeper) CheckAbsoluteLimit(ctx sdk.Context, tokenAddress gethcommon.Address, amount *big.Int) error {
+func (k *Keeper) DeleteMintAmountERC20(ctx sdk.Context, tokenAddress gethcommon.Address) {
+	ctx, doneFn := metrics.ReportFuncCallAndTimingSdkCtx(ctx, k.svcTags)
+	defer doneFn()
+
+	store := ctx.KVStore(k.storeKey)
+	store.Delete(types.GetMintAmountERC20Key(tokenAddress.Bytes()))
+}
+
+func (k *Keeper) CheckAbsoluteLimit(ctx sdk.Context, tokenAddress gethcommon.Address, amount sdkmath.Int) error {
 	ctx, doneFn := metrics.ReportFuncCallAndTimingSdkCtx(ctx, k.svcTags)
 	defer doneFn()
 
@@ -207,9 +228,9 @@ func (k *Keeper) CheckAbsoluteLimit(ctx sdk.Context, tokenAddress gethcommon.Add
 		return nil // no-op
 	}
 
-	absoluteLimit := rateLimit.AbsoluteMintLimit.BigInt()
+	absoluteLimit := rateLimit.AbsoluteMintLimit
 	currentAmount := k.GetMintAmountERC20(ctx, tokenAddress)
-	if remaining := absoluteLimit.Sub(absoluteLimit, currentAmount); remaining.Cmp(amount) < 0 {
+	if remaining := absoluteLimit.Sub(currentAmount); remaining.LT(amount) {
 		return ErrAbsoluteMintLimitOverflow
 	}
 

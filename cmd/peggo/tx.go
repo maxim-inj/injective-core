@@ -142,7 +142,7 @@ func registerEthKeyCmd(cmd *cli.Cmd) {
 		broadcastCtx, cancelFn := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancelFn()
 
-		if err = peggy.BroadcastClient(net).UpdatePeggyOrchestratorAddresses(broadcastCtx, ethKeyFromAddress, keyring.Addr); err != nil {
+		if err = peggy.BroadcastClient(net).SetOrchestratorAddresses(broadcastCtx, ethKeyFromAddress, keyring.Addr); err != nil {
 			log.WithError(err).Errorln("failed to broadcast Tx")
 			time.Sleep(time.Second)
 			return

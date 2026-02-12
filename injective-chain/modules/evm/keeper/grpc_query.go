@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"math/big"
+	"runtime/debug"
 	"time"
 
 	cosmostracing "github.com/InjectiveLabs/injective-core/injective-chain/modules/evm/tracing"
@@ -224,6 +226,12 @@ func (k Keeper) EthCall(c context.Context, req *types.EthCallRequest) (*types.Ms
 	}
 
 	ctx := sdk.UnwrapSDKContext(c)
+	defer func() {
+		if r := recover(); r != nil {
+			k.Logger(ctx).Error("panic in eth_call", "panic", r, "stack", string(debug.Stack()))
+			panic(r)
+		}
+	}()
 	ctx = ctx.WithProposer(GetProposerAddress(ctx, req.ProposerAddress))
 
 	var args types.TransactionArgs
@@ -284,6 +292,12 @@ func (k Keeper) EstimateGas(c context.Context, req *types.EthCallRequest) (*type
 	}
 
 	ctx := sdk.UnwrapSDKContext(c)
+	defer func() {
+		if r := recover(); r != nil {
+			k.Logger(ctx).Error("panic in eth_estimateGas", "panic", r, "stack", string(debug.Stack()))
+			panic(r)
+		}
+	}()
 	ctx = ctx.WithProposer(GetProposerAddress(ctx, req.ProposerAddress))
 
 	if req.GasCap < ethparams.TxGas {
@@ -317,6 +331,11 @@ func (k Keeper) EstimateGas(c context.Context, req *types.EthCallRequest) (*type
 		hi = uint64(*args.Gas)
 	} else {
 		hi = gasCap
+	}
+
+	// Cap hi to MaxInt64 since gas calculations use int64 internally.
+	if hi > math.MaxInt64 {
+		hi = math.MaxInt64
 	}
 
 	cfg, err := k.EVMConfig(ctx, common.Hash{})
@@ -367,35 +386,38 @@ func (k Keeper) EstimateGas(c context.Context, req *types.EthCallRequest) (*type
 			}
 			return true, nil, err // Bail out
 		}
-		return rsp.VmError != "", rsp, nil
+		return rsp.Failed(), rsp, nil
 	}
 
-	// Execute the binary search and hone in on an executable gas limit
-	hi, err = types.BinSearch(lo, hi, executable)
+	// We first execute the transaction at the highest allowable gas limit, since if this fails we
+	// can return error immediately.
+	failed, result, err := executable(hi)
 	if err != nil {
 		return nil, err
 	}
-
-	// Reject the transaction as invalid if it still fails at the highest allowance
-	if hi == gasCap {
-		failed, result, err := executable(hi)
-		if err != nil {
-			return nil, err
-		}
-
-		if failed {
-			if result != nil && result.VmError != vm.ErrOutOfGas.Error() {
-				if result.VmError == vm.ErrExecutionReverted.Error() {
-					return &types.EstimateGasResponse{
-						Ret:     result.Ret,
-						VmError: result.VmError,
-					}, nil
-				}
-				return nil, errors.New(result.VmError)
+	if failed {
+		if result != nil && result.VmError != vm.ErrOutOfGas.Error() {
+			if result.VmError == vm.ErrExecutionReverted.Error() {
+				return &types.EstimateGasResponse{
+					Ret:     result.Ret,
+					VmError: result.VmError,
+				}, nil
 			}
-			// Otherwise, the specified gas cap is too low
-			return nil, fmt.Errorf("gas required exceeds allowance (%d)", gasCap)
+			return nil, errors.New(result.VmError)
 		}
+		// Otherwise, the specified gas cap is too low
+		return nil, fmt.Errorf("gas required exceeds allowance (%d)", hi)
+	}
+
+	// Use ExecutionGasUsed (actual gas before any adjustment) to bound the search.
+	if result.ExecutionGasUsed > 0 {
+		lo = result.ExecutionGasUsed - 1
+	}
+
+	// Execute the binary search and hone in on an executable gas limit.
+	hi, err = types.BinSearch(lo, hi, executable)
+	if err != nil {
+		return nil, err
 	}
 	return &types.EstimateGasResponse{Gas: hi}, nil
 }
@@ -476,6 +498,14 @@ func (k Keeper) TraceTx(c context.Context, req *types.QueryTraceTxRequest) (*typ
 	if !k.grpcTracingEnabled {
 		return nil, status.Error(codes.Unavailable, "TraceTx is disabled on this node")
 	}
+
+	ctx := sdk.UnwrapSDKContext(c)
+	defer func() {
+		if r := recover(); r != nil {
+			k.Logger(ctx).Error("panic in trace_call", "panic", r, "stack", string(debug.Stack()))
+			panic(r)
+		}
+	}()
 
 	resultData, err := execTrace(
 		c,

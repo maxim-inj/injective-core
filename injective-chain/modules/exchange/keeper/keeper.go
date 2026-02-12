@@ -1,13 +1,13 @@
 package keeper
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"runtime/debug"
+	"time"
 
+	"cosmossdk.io/collections"
 	sdkerrors "cosmossdk.io/errors"
-	"cosmossdk.io/log"
 	"cosmossdk.io/math"
 	storetypes "cosmossdk.io/store/types"
 	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
@@ -19,28 +19,47 @@ import (
 	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
 	distrkeeper "github.com/cosmos/cosmos-sdk/x/distribution/keeper"
 	govkeeper "github.com/cosmos/cosmos-sdk/x/gov/keeper"
+	"github.com/cosmos/gogoproto/proto"
 	"github.com/ethereum/go-ethereum/common"
 
+	"github.com/InjectiveLabs/injective-core/injective-chain/modules/exchange/keeper/base"
+	"github.com/InjectiveLabs/injective-core/injective-chain/modules/exchange/keeper/binaryoptions"
+	"github.com/InjectiveLabs/injective-core/injective-chain/modules/exchange/keeper/derivative"
+	"github.com/InjectiveLabs/injective-core/injective-chain/modules/exchange/keeper/events"
+	"github.com/InjectiveLabs/injective-core/injective-chain/modules/exchange/keeper/feediscounts"
+	"github.com/InjectiveLabs/injective-core/injective-chain/modules/exchange/keeper/marketfinder"
+	"github.com/InjectiveLabs/injective-core/injective-chain/modules/exchange/keeper/proposals"
+	"github.com/InjectiveLabs/injective-core/injective-chain/modules/exchange/keeper/rewards"
+	"github.com/InjectiveLabs/injective-core/injective-chain/modules/exchange/keeper/spot"
+	"github.com/InjectiveLabs/injective-core/injective-chain/modules/exchange/keeper/subaccount"
+	"github.com/InjectiveLabs/injective-core/injective-chain/modules/exchange/keeper/utils"
+	"github.com/InjectiveLabs/injective-core/injective-chain/modules/exchange/keeper/wasm"
 	"github.com/InjectiveLabs/injective-core/injective-chain/modules/exchange/types"
-	v2 "github.com/InjectiveLabs/injective-core/injective-chain/modules/exchange/types/v2"
+	"github.com/InjectiveLabs/injective-core/injective-chain/modules/exchange/types/v2"
 )
 
 // Keeper of this module maintains collections of exchange.
 type Keeper struct {
-	storeKey  storetypes.StoreKey
-	tStoreKey storetypes.StoreKey
-	cdc       codec.BinaryCodec
+	DistributionKeeper distrkeeper.Keeper
+	AccountKeeper      authkeeper.AccountKeeper // todo: revisit
+	OracleKeeper       types.OracleKeeper       // todo: revisit
 
-	DistributionKeeper   distrkeeper.Keeper
-	StakingKeeper        types.StakingKeeper
-	AccountKeeper        authkeeper.AccountKeeper
+	*base.BaseKeeper
+	*subaccount.SubaccountKeeper
+	*binaryoptions.BinaryOptionsKeeper
+	*derivative.DerivativeKeeper
+	*spot.SpotKeeper
+	*feediscounts.FeeDiscountsKeeper
+	*rewards.TradingKeeper
+	*wasm.WasmKeeper
+	*proposals.ProposalKeeper
+
 	bankKeeper           bankkeeper.Keeper
-	OracleKeeper         types.OracleKeeper
-	insuranceKeeper      types.InsuranceKeeper
 	govKeeper            govkeeper.Keeper
 	wasmViewKeeper       types.WasmViewKeeper
 	wasmxExecutionKeeper types.WasmxExecutionKeeper
 	DowntimeKeeper       types.DowntimeKeeper
+	permissionsKeeper    types.PermissionsKeeper
 
 	svcTags   metrics.Tags
 	authority string
@@ -53,7 +72,7 @@ type Keeper struct {
 func NewKeeper(
 	cdc codec.BinaryCodec,
 	storeKey storetypes.StoreKey,
-	tstoreKey storetypes.StoreKey,
+	tStoreKey storetypes.StoreKey,
 	ak authkeeper.AccountKeeper,
 	bk bankkeeper.Keeper,
 	ok types.OracleKeeper,
@@ -61,19 +80,32 @@ func NewKeeper(
 	dk distrkeeper.Keeper,
 	sk types.StakingKeeper,
 	downtimeK types.DowntimeKeeper,
+	permissionsKeeper types.PermissionsKeeper,
 	authority string,
 ) *Keeper {
+	var (
+		b            = base.NewBaseKeeper(cdc, storeKey, tStoreKey)
+		subacc       = subaccount.New(b, ak, bk, permissionsKeeper)
+		feeDiscounts = feediscounts.New(b, sk)
+		trade        = rewards.New(b, bk, feeDiscounts, dk)
+		derv         = derivative.New(b, subacc, ok, feeDiscounts, bk, ik, trade)
+	)
+
 	return &Keeper{
-		cdc:                cdc,
-		storeKey:           storeKey,
-		tStoreKey:          tstoreKey,
-		AccountKeeper:      ak,
-		OracleKeeper:       ok,
-		DistributionKeeper: dk,
-		StakingKeeper:      sk,
-		bankKeeper:         bk,
-		insuranceKeeper:    ik,
+		BaseKeeper:          b,
+		SubaccountKeeper:    subacc,
+		BinaryOptionsKeeper: binaryoptions.New(b, derv, subacc, ok, ak, trade, feeDiscounts),
+		DerivativeKeeper:    derv,
+		SpotKeeper:          spot.New(b, bk, subacc, trade, feeDiscounts),
+		FeeDiscountsKeeper:  feeDiscounts,
+		TradingKeeper:       trade,
+
 		DowntimeKeeper:     downtimeK,
+		permissionsKeeper:  permissionsKeeper,
+		AccountKeeper:      ak,
+		DistributionKeeper: dk,
+		OracleKeeper:       ok,
+		bankKeeper:         bk,
 		authority:          authority,
 		svcTags: metrics.Tags{
 			"svc": "exchange_k",
@@ -82,12 +114,27 @@ func NewKeeper(
 	}
 }
 
-func (k *Keeper) Logger(ctx sdk.Context) log.Logger {
-	return ctx.Logger().With("module", types.ModuleName)
-}
-
 func (k *Keeper) SetGovKeeper(gk govkeeper.Keeper) {
 	k.govKeeper = gk
+
+	// now we can set proposal keeper
+	k.ProposalKeeper = proposals.New(
+		k.BaseKeeper,
+		k.AccountKeeper,
+		k.OracleKeeper,
+		k.govKeeper,
+		k.DistributionKeeper,
+		k.BinaryOptionsKeeper,
+		k.DerivativeKeeper,
+		k.SpotKeeper,
+		k.TradingKeeper,
+		k.SubaccountKeeper,
+		k.FeeDiscountsKeeper,
+	)
+}
+
+func (k *Keeper) EmitEvent(ctx sdk.Context, event proto.Message) {
+	events.Emit(ctx, k.BaseKeeper, event)
 }
 
 func (k *Keeper) SetWasmKeepers(
@@ -96,6 +143,22 @@ func (k *Keeper) SetWasmKeepers(
 ) {
 	k.wasmViewKeeper = types.WasmViewKeeper(wk)
 	k.wasmxExecutionKeeper = wxk
+	k.DerivativeKeeper = k.SetWasm(k.wasmViewKeeper)
+
+	// now we can set wasm keeper
+	k.WasmKeeper = wasm.New(
+		k.BaseKeeper,
+		k.bankKeeper,
+		k.SubaccountKeeper,
+		k.DerivativeKeeper,
+		k.wasmViewKeeper,
+		k.wasmxExecutionKeeper,
+	)
+}
+
+func (k *Keeper) SetPermissionsKeeper(pk types.PermissionsKeeper) {
+	k.permissionsKeeper = pk
+	k.SubaccountKeeper.SetPermissionsKeeper(pk)
 }
 
 // CreateModuleAccount creates a module account with minter and burning capabilities
@@ -106,21 +169,39 @@ func (k *Keeper) CreateModuleAccount(ctx sdk.Context) {
 	k.AccountKeeper.SetModuleAccount(ctx, moduleAcc)
 }
 
-func (k *Keeper) IsDenomDecimalsValid(ctx sdk.Context, tokenDenom string, tokenDecimals uint32) bool {
-	tokenMetadata, found := k.bankKeeper.GetDenomMetaData(ctx, tokenDenom)
-	return !found || tokenMetadata.Decimals == 0 || tokenMetadata.Decimals == tokenDecimals
-}
+// GetAllDerivativeAndBinaryOptionsLimitOrderbook returns all orderbooks for all derivative markets.
+func (k *Keeper) GetAllDerivativeAndBinaryOptionsLimitOrderbook(ctx sdk.Context) []v2.DerivativeOrderBook {
+	ctx, doneFn := metrics.ReportFuncCallAndTimingSdkCtx(ctx, k.svcTags)
+	defer doneFn()
 
-func (k *Keeper) TokenDenomDecimals(ctx sdk.Context, tokenDenom string) (decimals uint32, err error) {
-	tokenMetadata, found := k.bankKeeper.GetDenomMetaData(ctx, tokenDenom)
-	if !found {
-		return 0, sdkerrors.Wrapf(types.ErrInvalidQuoteDenom, "denom %s does not have denom metadata", tokenDenom)
-	}
-	if tokenMetadata.Decimals == 0 {
-		return 0, sdkerrors.Wrapf(types.ErrInvalidQuoteDenom, "denom units for %s are not correctly configured", tokenDenom)
+	derivativeMarkets := k.GetAllDerivativeMarkets(ctx)
+	binaryOptionsMarkets := k.GetAllBinaryOptionsMarkets(ctx)
+
+	markets := make([]v2.DerivativeMarketI, 0, len(derivativeMarkets)+len(binaryOptionsMarkets))
+	for _, m := range derivativeMarkets {
+		markets = append(markets, m)
 	}
 
-	return tokenMetadata.Decimals, nil
+	for _, m := range binaryOptionsMarkets {
+		markets = append(markets, m)
+	}
+
+	orderbook := make([]v2.DerivativeOrderBook, 0, len(markets)*2)
+	for _, market := range markets {
+		marketID := market.MarketID()
+		orderbook = append(orderbook, v2.DerivativeOrderBook{
+			MarketId:  marketID.Hex(),
+			IsBuySide: true,
+			Orders:    k.GetAllDerivativeLimitOrdersByMarketDirection(ctx, marketID, true),
+		},
+			v2.DerivativeOrderBook{
+				MarketId:  marketID.Hex(),
+				IsBuySide: false,
+				Orders:    k.GetAllDerivativeLimitOrdersByMarketDirection(ctx, marketID, false),
+			})
+	}
+
+	return orderbook
 }
 
 //revive:disable:argument-limit // We need all the parameters in the function
@@ -216,7 +297,7 @@ func (k *Keeper) ExecuteBatchUpdateOrders(
 		&failedSpotLimitOrdersCids,
 		&orderFailEvent,
 		spotMarkets,
-		k.createSpotLimitOrder,
+		k.CreateSpotLimitOrder,
 	)
 
 	markPrices := make(map[common.Hash]math.LegacyDec)
@@ -242,7 +323,7 @@ func (k *Keeper) ExecuteBatchUpdateOrders(
 		&failedDerivativeOrdersCids,
 		derivativeMarkets,
 		markPrices,
-		k.createDerivativeLimitOrder,
+		k.CreateDerivativeLimitOrder,
 	)
 	k.processCreateBinaryOptionsOrders(
 		ctx,
@@ -253,7 +334,7 @@ func (k *Keeper) ExecuteBatchUpdateOrders(
 		&createdBinaryOptionsMarketOrdersCids,
 		&failedBinaryOptionsMarketOrdersCids,
 		binaryOptionsMarkets,
-		k.createBinaryOptionsMarketOrder,
+		k.CreateBinaryOptionsMarketOrder,
 	)
 	k.processCreateBinaryOptionsOrders(
 		ctx,
@@ -264,7 +345,7 @@ func (k *Keeper) ExecuteBatchUpdateOrders(
 		&createdBinaryOptionsOrdersCids,
 		&failedBinaryOptionsOrdersCids,
 		binaryOptionsMarkets,
-		k.createDerivativeLimitOrder,
+		k.CreateDerivativeLimitOrder,
 	)
 
 	if !orderFailEvent.IsEmpty() {
@@ -296,314 +377,6 @@ func (k *Keeper) ExecuteBatchUpdateOrders(
 	}, nil
 }
 
-//nolint:revive // this is fine
-func (k *Keeper) FixedGasBatchUpdateOrders(
-	c context.Context,
-	msg *v2.MsgBatchUpdateOrders,
-) (*v2.MsgBatchUpdateOrdersResponse, error) {
-	//	no clever method shadowing here
-
-	cc, doneFn := metrics.ReportFuncCallAndTimingCtx(c, k.svcTags)
-	defer doneFn()
-
-	ctx := sdk.UnwrapSDKContext(cc)
-	sender, _ := sdk.AccAddressFromBech32(msg.Sender)
-
-	subaccountId := msg.SubaccountId
-
-	// reference the gas meter early to consume gas later on in loop iterations
-	gasMeter := ctx.GasMeter()
-	gasConsumedBefore := gasMeter.GasConsumed()
-
-	defer func() {
-		totalGas := gasMeter.GasConsumed()
-		k.Logger(ctx).Info("MsgBatchUpdateOrders",
-			"gas_ante", gasConsumedBefore,
-			"gas_msg", totalGas-gasConsumedBefore,
-			"gas_total", totalGas,
-			"sender", msg.Sender,
-		)
-	}()
-
-	ctx = ctx.WithGasMeter(storetypes.NewInfiniteGasMeter())
-
-	/**	1. Cancel all **/
-	// NOTE: provided subaccountID indicates cancelling all orders in a market for given market IDs
-	if isCancelAll := subaccountId != ""; isCancelAll {
-		//  Derive the subaccountID.
-		subaccountID := types.MustGetSubaccountIDOrDeriveFromNonce(sender, subaccountId)
-
-		/**	1. a) Cancel all spot limit orders in markets **/
-		for _, spotMarketIdToCancelAll := range msg.SpotMarketIdsToCancelAll {
-			marketID := common.HexToHash(spotMarketIdToCancelAll)
-			market := k.GetSpotMarketByID(ctx, marketID)
-			if market == nil {
-				continue
-			}
-
-			if !market.StatusSupportsOrderCancellations() {
-				k.Logger(ctx).Debug("failed to cancel all spot limit orders", "marketID", marketID.Hex())
-				continue
-			}
-
-			// k.CancelAllSpotLimitOrders(ctx, market, subaccountID, marketID)
-			// get all orders to cancel
-			var (
-				restingBuyOrders = k.GetAllSpotLimitOrdersBySubaccountAndMarket(
-					ctx,
-					marketID,
-					true,
-					subaccountID,
-				)
-				restingSellOrders = k.GetAllSpotLimitOrdersBySubaccountAndMarket(
-					ctx,
-					marketID,
-					false,
-					subaccountID,
-				)
-				transientBuyOrders = k.GetAllTransientSpotLimitOrdersBySubaccountAndMarket(
-					ctx,
-					marketID,
-					true,
-					subaccountID,
-				)
-				transientSellOrders = k.GetAllTransientSpotLimitOrdersBySubaccountAndMarket(
-					ctx,
-					marketID,
-					false,
-					subaccountID,
-				)
-			)
-
-			// consume gas
-			gasMeter.ConsumeGas(MsgCancelSpotOrderGas*uint64(len(restingBuyOrders)), "")
-			gasMeter.ConsumeGas(MsgCancelSpotOrderGas*uint64(len(restingSellOrders)), "")
-			gasMeter.ConsumeGas(MsgCancelSpotOrderGas*uint64(len(transientBuyOrders)), "")
-			gasMeter.ConsumeGas(MsgCancelSpotOrderGas*uint64(len(transientSellOrders)), "")
-		}
-
-		/**	1. b) Cancel all derivative limit orders in markets **/
-		for _, derivativeMarketIdToCancelAll := range msg.DerivativeMarketIdsToCancelAll {
-			marketID := common.HexToHash(derivativeMarketIdToCancelAll)
-			market := k.GetDerivativeMarketByID(ctx, marketID)
-			if market == nil {
-				k.Logger(ctx).Debug(
-					"failed to cancel all derivative limit orders for non-existent market",
-					"marketID",
-					marketID.Hex(),
-				)
-				continue
-			}
-
-			if !market.StatusSupportsOrderCancellations() {
-				k.Logger(ctx).Debug(
-					"failed to cancel all derivative limit orders for market whose status doesnt support cancellations",
-					"marketID",
-					marketID.Hex(),
-				)
-				continue
-			}
-
-			var (
-				restingBuyOrderHashes = k.GetAllRestingDerivativeLimitOrderHashesBySubaccountAndMarket(
-					ctx,
-					marketID,
-					true,
-					subaccountID,
-				)
-				restingSellOrderHashes = k.GetAllRestingDerivativeLimitOrderHashesBySubaccountAndMarket(
-					ctx,
-					marketID,
-					false, subaccountID,
-				)
-				buyOrders = k.GetAllTransientDerivativeLimitOrdersByMarketDirectionBySubaccountID(
-					ctx,
-					marketID,
-					&subaccountID,
-					true,
-				)
-				sellOrders = k.GetAllTransientDerivativeLimitOrdersByMarketDirectionBySubaccountID(
-					ctx,
-					marketID,
-					&subaccountID,
-					false,
-				)
-				higherMarketOrders = k.GetAllConditionalOrderHashesBySubaccountAndMarket(
-					ctx,
-					marketID,
-					true,
-					true,
-					subaccountID,
-				)
-				lowerMarketOrders = k.GetAllConditionalOrderHashesBySubaccountAndMarket(
-					ctx,
-					marketID,
-					false,
-					true,
-					subaccountID,
-				)
-				higherLimitOrders = k.GetAllConditionalOrderHashesBySubaccountAndMarket(
-					ctx,
-					marketID,
-					true,
-					false,
-					subaccountID,
-				)
-				lowerLimitOrders = k.GetAllConditionalOrderHashesBySubaccountAndMarket(
-					ctx,
-					marketID,
-					false,
-					false,
-					subaccountID,
-				)
-			)
-
-			// consume gas
-			gasMeter.ConsumeGas(MsgCancelDerivativeOrderGas*uint64(len(restingBuyOrderHashes)), "")
-			gasMeter.ConsumeGas(MsgCancelDerivativeOrderGas*uint64(len(restingSellOrderHashes)), "")
-			gasMeter.ConsumeGas(MsgCancelDerivativeOrderGas*uint64(len(buyOrders)), "")
-			gasMeter.ConsumeGas(MsgCancelDerivativeOrderGas*uint64(len(sellOrders)), "")
-			gasMeter.ConsumeGas(MsgCancelDerivativeOrderGas*uint64(len(higherMarketOrders)), "")
-			gasMeter.ConsumeGas(MsgCancelDerivativeOrderGas*uint64(len(lowerMarketOrders)), "")
-			gasMeter.ConsumeGas(MsgCancelDerivativeOrderGas*uint64(len(higherLimitOrders)), "")
-			gasMeter.ConsumeGas(MsgCancelDerivativeOrderGas*uint64(len(lowerLimitOrders)), "")
-		}
-
-		/**	1. c) Cancel all bo limit orders in markets **/
-		for _, binaryOptionsMarketIdToCancelAll := range msg.BinaryOptionsMarketIdsToCancelAll {
-			marketID := common.HexToHash(binaryOptionsMarketIdToCancelAll)
-			market := k.GetBinaryOptionsMarketByID(ctx, marketID)
-			if market == nil {
-				k.Logger(ctx).Debug(
-					"failed to cancel all binary options limit orders for non-existent market",
-					"marketID",
-					marketID.Hex(),
-				)
-				continue
-			}
-
-			if !market.StatusSupportsOrderCancellations() {
-				k.Logger(ctx).Debug(
-					"failed to cancel all binary options limit orders for market whose status doesnt support cancellations",
-					"marketID",
-					marketID.Hex(),
-				)
-				continue
-			}
-
-			var (
-				restingBuyOrderHashes = k.GetAllRestingDerivativeLimitOrderHashesBySubaccountAndMarket(
-					ctx,
-					marketID,
-					true,
-					subaccountID,
-				)
-				restingSellOrderHashes = k.GetAllRestingDerivativeLimitOrderHashesBySubaccountAndMarket(
-					ctx,
-					marketID,
-					false,
-					subaccountID,
-				)
-				buyOrders = k.GetAllTransientDerivativeLimitOrdersByMarketDirectionBySubaccountID(
-					ctx,
-					marketID,
-					&subaccountID,
-					true,
-				)
-				sellOrders = k.GetAllTransientDerivativeLimitOrdersByMarketDirectionBySubaccountID(
-					ctx,
-					marketID,
-					&subaccountID,
-					false,
-				)
-				higherMarketOrders = k.GetAllConditionalOrderHashesBySubaccountAndMarket(
-					ctx,
-					marketID,
-					true,
-					true,
-					subaccountID,
-				)
-				lowerMarketOrders = k.GetAllConditionalOrderHashesBySubaccountAndMarket(
-					ctx,
-					marketID,
-					false,
-					true,
-					subaccountID,
-				)
-				higherLimitOrders = k.GetAllConditionalOrderHashesBySubaccountAndMarket(
-					ctx,
-					marketID,
-					true,
-					false,
-					subaccountID,
-				)
-				lowerLimitOrders = k.GetAllConditionalOrderHashesBySubaccountAndMarket(
-					ctx,
-					marketID,
-					false,
-					false,
-					subaccountID,
-				)
-			)
-
-			gasMeter.ConsumeGas(MsgCancelBinaryOptionsOrderGas*uint64(len(restingBuyOrderHashes)), "")
-			gasMeter.ConsumeGas(MsgCancelBinaryOptionsOrderGas*uint64(len(restingSellOrderHashes)), "")
-			gasMeter.ConsumeGas(MsgCancelBinaryOptionsOrderGas*uint64(len(buyOrders)), "")
-			gasMeter.ConsumeGas(MsgCancelBinaryOptionsOrderGas*uint64(len(sellOrders)), "")
-			gasMeter.ConsumeGas(MsgCancelBinaryOptionsOrderGas*uint64(len(higherMarketOrders)), "")
-			gasMeter.ConsumeGas(MsgCancelBinaryOptionsOrderGas*uint64(len(lowerMarketOrders)), "")
-			gasMeter.ConsumeGas(MsgCancelBinaryOptionsOrderGas*uint64(len(higherLimitOrders)), "")
-			gasMeter.ConsumeGas(MsgCancelBinaryOptionsOrderGas*uint64(len(lowerLimitOrders)), "")
-		}
-	}
-
-	gasMeter.ConsumeGas(MsgCancelSpotOrderGas*uint64(len(msg.SpotOrdersToCancel)), "")
-	gasMeter.ConsumeGas(MsgCancelDerivativeOrderGas*uint64(len(msg.DerivativeOrdersToCancel)), "")
-	gasMeter.ConsumeGas(MsgCancelBinaryOptionsOrderGas*uint64(len(msg.BinaryOptionsOrdersToCancel)), "")
-
-	gasMeter.ConsumeGas(MsgCreateSpotMarketOrderGas*uint64(len(msg.SpotMarketOrdersToCreate)), "")
-	gasMeter.ConsumeGas(MsgCreateDerivativeMarketOrderGas*uint64(len(msg.DerivativeMarketOrdersToCreate)), "")
-	gasMeter.ConsumeGas(MsgCreateBinaryOptionsMarketOrderGas*uint64(len(msg.BinaryOptionsMarketOrdersToCreate)), "")
-
-	// For limit orders creation we determine the gas using the DetermineGas function to reuse the logic
-	for _, spotOrder := range msg.SpotOrdersToCreate {
-		dummySpotOrderMessage := v2.MsgCreateSpotLimitOrder{
-			Order: *spotOrder,
-		}
-		gasMeter.ConsumeGas(DetermineGas(&dummySpotOrderMessage), "")
-	}
-	for _, derivativeOrder := range msg.DerivativeOrdersToCreate {
-		dummyDerivativeOrderMessage := v2.MsgCreateDerivativeLimitOrder{
-			Order: *derivativeOrder,
-		}
-		gasMeter.ConsumeGas(DetermineGas(&dummyDerivativeOrderMessage), "")
-	}
-	for _, order := range msg.BinaryOptionsOrdersToCreate {
-		dummyBinaryOptionsOrderMessage := v2.MsgCreateBinaryOptionsLimitOrder{
-			Order: *order,
-		}
-		gasMeter.ConsumeGas(DetermineGas(&dummyBinaryOptionsOrderMessage), "")
-	}
-
-	return k.ExecuteBatchUpdateOrders(
-		ctx,
-		sender,
-		msg.SubaccountId,
-		msg.SpotMarketIdsToCancelAll,
-		msg.DerivativeMarketIdsToCancelAll,
-		msg.BinaryOptionsMarketIdsToCancelAll,
-		msg.SpotOrdersToCancel,
-		msg.DerivativeOrdersToCancel,
-		msg.BinaryOptionsOrdersToCancel,
-		msg.SpotOrdersToCreate,
-		msg.DerivativeOrdersToCreate,
-		msg.BinaryOptionsOrdersToCreate,
-		msg.SpotMarketOrdersToCreate,
-		msg.DerivativeMarketOrdersToCreate,
-		msg.BinaryOptionsMarketOrdersToCreate,
-	)
-}
-
 // ProcessExpiredDOrders processes all expired orders at the current block height
 func (k *Keeper) ProcessExpiredOrders(ctx sdk.Context) {
 	ctx, doneFn := metrics.ReportFuncCallAndTimingSdkCtx(ctx, k.svcTags)
@@ -623,7 +396,7 @@ func (k *Keeper) ProcessExpiredOrders(ctx sdk.Context) {
 	blockHeight := ctx.BlockHeight()
 	marketIDs := k.GetMarketsWithOrderExpirations(ctx, blockHeight)
 
-	marketFinder := NewCachedMarketFinder(k)
+	marketFinder := marketfinder.New(k.BaseKeeper)
 
 	for _, marketID := range marketIDs {
 		market, err := marketFinder.FindMarket(ctx, marketID.Hex())
@@ -635,7 +408,7 @@ func (k *Keeper) ProcessExpiredOrders(ctx sdk.Context) {
 	}
 }
 
-func (k *Keeper) processMarketExpiredOrders(ctx sdk.Context, market MarketInterface, blockHeight int64) {
+func (k *Keeper) processMarketExpiredOrders(ctx sdk.Context, market v2.MarketI, blockHeight int64) {
 	defer k.DeleteMarketWithOrderExpirations(ctx, market.MarketID(), blockHeight)
 
 	orders, err := k.GetOrdersByExpiration(ctx, market.MarketID(), blockHeight)
@@ -667,11 +440,11 @@ func (k *Keeper) processMarketExpiredOrders(ctx sdk.Context, market MarketInterf
 				))
 			}
 		} else {
-			if err := k.cancelDerivativeOrder(
+			if err := k.CancelDerivativeOrder(
 				ctx,
 				common.HexToHash(order.SubaccountId),
 				order.GetIdentifier(),
-				market,
+				market.(v2.DerivativeMarketI),
 				market.MarketID(),
 				int32(v2.OrderMask_ANY),
 			); err != nil {
@@ -828,7 +601,7 @@ func (k *Keeper) processCancelDerivativeOrders(
 		}
 		subaccountID := types.MustGetSubaccountIDOrDeriveFromNonce(sender, derivativeOrderToCancel.SubaccountId)
 
-		err := k.cancelDerivativeOrder(
+		err := k.CancelDerivativeOrder(
 			ctx, subaccountID, derivativeOrderToCancel.GetIdentifier(), market, marketID, derivativeOrderToCancel.OrderMask,
 		)
 
@@ -871,7 +644,7 @@ func (k *Keeper) processCancelBinaryOptionsOrders(
 		}
 		subaccountID := types.MustGetSubaccountIDOrDeriveFromNonce(sender, binaryOptionsOrderToCancel.SubaccountId)
 
-		err := k.cancelDerivativeOrder(
+		err := k.CancelDerivativeOrder(
 			ctx, subaccountID, binaryOptionsOrderToCancel.GetIdentifier(), market, marketID, binaryOptionsOrderToCancel.OrderMask,
 		)
 
@@ -978,7 +751,7 @@ func (k *Keeper) processCreateDerivativeOrders(
 	derivativeMarkets map[common.Hash]*v2.DerivativeMarket,
 	markPrices map[common.Hash]math.LegacyDec,
 	orderCreator func(
-		ctx sdk.Context, sender sdk.AccAddress, order *v2.DerivativeOrder, market DerivativeMarketInterface, markPrice math.LegacyDec,
+		ctx sdk.Context, sender sdk.AccAddress, order *v2.DerivativeOrder, market v2.DerivativeMarketI, markPrice math.LegacyDec,
 	) (common.Hash, error),
 ) {
 	for idx, derivativeOrder := range derivativeOrdersToCreate {
@@ -1058,7 +831,7 @@ func (k *Keeper) processDerivativeOrderCreation(
 	createdDerivativeOrdersCids *[]string,
 	failedDerivativeOrdersCids *[]string,
 	orderCreator func(
-		ctx sdk.Context, sender sdk.AccAddress, order *v2.DerivativeOrder, market DerivativeMarketInterface, markPrice math.LegacyDec,
+		ctx sdk.Context, sender sdk.AccAddress, order *v2.DerivativeOrder, market v2.DerivativeMarketI, markPrice math.LegacyDec,
 	) (common.Hash, error),
 ) {
 	if orderHash, err := orderCreator(ctx, sender, derivativeOrder, market, markPrice); err != nil {
@@ -1084,7 +857,7 @@ func (k *Keeper) processCreateBinaryOptionsOrders(
 	failedBinaryOptionsOrdersCids *[]string,
 	binaryOptionsMarkets map[common.Hash]*v2.BinaryOptionsMarket,
 	orderCreator func(
-		ctx sdk.Context, sender sdk.AccAddress, order *v2.DerivativeOrder, market DerivativeMarketInterface, markPrice math.LegacyDec,
+		ctx sdk.Context, sender sdk.AccAddress, order *v2.DerivativeOrder, market v2.DerivativeMarketI, markPrice math.LegacyDec,
 	) (common.Hash, error),
 ) {
 	for idx, order := range binaryOptionsOrdersToCreate {
@@ -1150,7 +923,7 @@ func (k *Keeper) processBinaryOptionsOrderCreation(
 	createdBinaryOptionsOrdersCids *[]string,
 	failedBinaryOptionsOrdersCids *[]string,
 	orderCreator func(
-		ctx sdk.Context, sender sdk.AccAddress, order *v2.DerivativeOrder, market DerivativeMarketInterface, markPrice math.LegacyDec,
+		ctx sdk.Context, sender sdk.AccAddress, order *v2.DerivativeOrder, market v2.DerivativeMarketI, markPrice math.LegacyDec,
 	) (common.Hash, error),
 ) {
 	if orderHash, err := orderCreator(ctx, sender, order, market, math.LegacyDec{}); err != nil {
@@ -1166,16 +939,19 @@ func (k *Keeper) processBinaryOptionsOrderCreation(
 	}
 }
 
+func (k *Keeper) createDerivativeMarketOrderWithoutResultsForAtomicExecution(
+	ctx sdk.Context,
+	sender sdk.AccAddress,
+	derivativeOrder *v2.DerivativeOrder,
+	market v2.DerivativeMarketI,
+	markPrice math.LegacyDec,
+) (orderHash common.Hash, err error) {
+	orderHash, _, err = k.CreateDerivativeMarketOrder(ctx, sender, derivativeOrder, market, markPrice)
+	return orderHash, err
+}
+
 func (k *Keeper) IsGovernanceAuthorityAddress(address string) bool {
 	return address == k.authority
-}
-
-func (k *Keeper) getStore(ctx sdk.Context) storetypes.KVStore {
-	return ctx.KVStore(k.storeKey)
-}
-
-func (k *Keeper) getTransientStore(ctx sdk.Context) storetypes.KVStore {
-	return ctx.TransientStore(k.tStoreKey)
 }
 
 func (k *Keeper) IsAdmin(ctx sdk.Context, addr string) bool {
@@ -1187,41 +963,6 @@ func (k *Keeper) IsAdmin(ctx sdk.Context, addr string) bool {
 	return false
 }
 
-func (k *Keeper) handleBatchCommunityPoolSpendProposal(ctx sdk.Context, p *v2.BatchCommunityPoolSpendProposal) error {
-	if err := p.ValidateBasic(); err != nil {
-		return err
-	}
-
-	for _, proposal := range p.Proposals {
-		recipient, addrErr := sdk.AccAddressFromBech32(proposal.Recipient)
-		if addrErr != nil {
-			return addrErr
-		}
-
-		err := k.DistributionKeeper.DistributeFromFeePool(ctx, proposal.Amount, recipient)
-		if err != nil {
-			return err
-		}
-
-		ctx.Logger().Info(
-			"transferred from the community pool to recipient",
-			"amount", proposal.Amount.String(),
-			"recipient", proposal.Recipient,
-		)
-	}
-
-	return nil
-}
-
-func (k *Keeper) handleDenomMinNotionalProposal(
-	ctx sdk.Context,
-	p *v2.DenomMinNotionalProposal,
-) {
-	for _, denomMinNotional := range p.DenomMinNotionals {
-		k.SetMinNotionalForDenom(ctx, denomMinNotional.Denom, denomMinNotional.MinNotional)
-	}
-}
-
 func (k *Keeper) IsFixedGasEnabled() bool {
 	return k.fixedGas
 }
@@ -1230,21 +971,88 @@ func (k *Keeper) SetFixedGasEnabled(enabled bool) {
 	k.fixedGas = enabled
 }
 
-// SetPostOnlyModeCancellationFlag sets a flag in the store to indicate that post-only mode
-// should be cancelled in the next BeginBlock
-func (k *Keeper) SetPostOnlyModeCancellationFlag(ctx sdk.Context) {
-	store := k.getStore(ctx)
-	store.Set(types.PostOnlyModeCancellationKey, []byte{1})
+// GetAllPerpetualMarketFundingStates returns all perpetual market funding states
+func (k *Keeper) GetAllPerpetualMarketFundingStates(ctx sdk.Context) []v2.PerpetualMarketFundingState {
+	ctx, doneFn := metrics.ReportFuncCallAndTimingSdkCtx(ctx, k.svcTags)
+	defer doneFn()
+
+	fundingStates := make([]v2.PerpetualMarketFundingState, 0)
+	k.IteratePerpetualMarketFundings(ctx, func(p *v2.PerpetualMarketFunding, marketID common.Hash) (stop bool) {
+		fundingState := v2.PerpetualMarketFundingState{
+			MarketId: marketID.Hex(),
+			Funding:  p,
+		}
+		fundingStates = append(fundingStates, fundingState)
+		return false
+	})
+
+	return fundingStates
 }
 
-// HasPostOnlyModeCancellationFlag checks if the post-only mode cancellation flag is set
-func (k *Keeper) HasPostOnlyModeCancellationFlag(ctx sdk.Context) bool {
-	store := k.getStore(ctx)
-	return store.Has(types.PostOnlyModeCancellationKey)
+func (k *Keeper) checkDenomMinNotional(ctx sdk.Context, sender sdk.AccAddress, denom string, minNotional math.LegacyDec) error {
+	// governance and exchange admins can set any min notional values
+	if sender.String() == k.authority {
+		return nil
+	}
+
+	if k.IsAdmin(ctx, sender.String()) {
+		return nil
+	}
+
+	if !k.HasMinNotionalForDenom(ctx, denom) {
+		return types.ErrInvalidNotional.Wrapf("min notional for %s does not exist", denom)
+	}
+
+	denomMinNotional := k.GetMinNotionalForDenom(ctx, denom)
+	if minNotional.LT(denomMinNotional) {
+		return types.ErrInvalidNotional.Wrapf("must be GTE %s", denomMinNotional)
+	}
+
+	return nil
 }
 
-// DeletePostOnlyModeCancellationFlag removes the post-only mode cancellation flag from the store
-func (k *Keeper) DeletePostOnlyModeCancellationFlag(ctx sdk.Context) {
-	store := k.getStore(ctx)
-	store.Delete(types.PostOnlyModeCancellationKey)
+func (k *Keeper) checkIfMarketLaunchProposalExist(
+	ctx sdk.Context,
+	marketID common.Hash,
+	proposalTypes ...string,
+) bool {
+	ctx, doneFn := metrics.ReportFuncCallAndTimingSdkCtx(ctx, k.svcTags)
+	defer doneFn()
+
+	exists := false
+	params, _ := k.govKeeper.Params.Get(ctx)
+	// Note: we do 10 * voting period to iterate all active proposals safely
+	endTime := ctx.BlockTime().Add(10 * (*params.VotingPeriod))
+	rng := collections.NewPrefixUntilPairRange[time.Time, uint64](endTime)
+	_ = k.govKeeper.ActiveProposalsQueue.Walk(ctx, rng, func(key collections.Pair[time.Time, uint64], _ uint64) (bool, error) {
+		p, err := k.govKeeper.Proposals.Get(ctx, key.K2())
+		if err != nil {
+			return false, err
+		}
+
+		exists = utils.ProposalAlreadyExists(p, marketID, proposalTypes...)
+		return exists, nil
+	})
+
+	return exists
+}
+
+func (k *Keeper) GetMarketType(ctx sdk.Context, marketID common.Hash, isEnabled bool) (*types.MarketType, error) { //nolint:revive // ok
+	if k.HasSpotMarket(ctx, marketID, isEnabled) {
+		tp := types.MarketType_Spot
+		return &tp, nil
+	}
+
+	if k.HasDerivativeMarket(ctx, marketID, isEnabled) {
+		derivativeMarket := k.GetDerivativeMarket(ctx, marketID, isEnabled)
+		tp := derivativeMarket.GetMarketType()
+		return &tp, nil
+	}
+
+	if k.HasBinaryOptionsMarket(ctx, marketID, isEnabled) {
+		tp := types.MarketType_BinaryOption
+		return &tp, nil
+	}
+
+	return nil, types.ErrMarketInvalid.Wrapf("Market with id: %v doesn't exist or is not active", marketID)
 }

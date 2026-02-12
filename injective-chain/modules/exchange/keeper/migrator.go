@@ -21,8 +21,8 @@ func NewMigrator(k Keeper, ss exported.Subspace) Migrator {
 func (m Migrator) Migrate1to2(ctx sdk.Context) error {
 	return v2.Migrate(
 		ctx,
-		ctx.KVStore(m.keeper.storeKey),
+		ctx.KVStore(m.keeper.GetStoreKey()),
 		m.subspace,
-		m.keeper.cdc,
+		m.keeper.GetCodec(),
 	)
 }

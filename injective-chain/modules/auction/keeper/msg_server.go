@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"context"
+	"slices"
 
 	"cosmossdk.io/math"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
@@ -56,19 +57,13 @@ func (k msgServer) Bid(goCtx context.Context, msg *types.MsgBid) (*types.MsgBidR
 
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
-	// Get params first to check whitelist before revealing any auction information
+	// We are sure the Sender is a valid address because it is validated in the ValidateBasic method
+	senderAddr := sdk.MustAccAddressFromBech32(msg.Sender)
+
 	params := k.GetParams(ctx)
 
-	// check bidders whitelist FIRST to prevent information leakage
 	if len(params.BiddersWhitelist) > 0 {
-		// If whitelist is populated, only allow whitelisted addresses to bid
-		isWhitelisted := false
-		for _, whitelistedAddr := range params.BiddersWhitelist {
-			if msg.Sender == whitelistedAddr {
-				isWhitelisted = true
-				break
-			}
-		}
+		isWhitelisted := slices.Contains(params.BiddersWhitelist, msg.Sender)
 		if !isWhitelisted {
 			metrics.ReportFuncError(k.svcTags)
 			return nil, errors.Wrapf(sdkerrors.ErrUnauthorized, "sender %s is not in bidders whitelist", msg.Sender)
@@ -86,37 +81,44 @@ func (k msgServer) Bid(goCtx context.Context, msg *types.MsgBid) (*types.MsgBidR
 		return nil, errors.Wrapf(types.ErrBidRound, "current round is %d but got bid for %d", round, msg.Round)
 	}
 
-	// check valid bid
-	lastBid := k.GetHighestBid(ctx)
-	if msg.BidAmount.Amount.LTE(lastBid.Amount.Amount) {
+	// can only happen in chain halts
+	endingTimeStamp := k.GetEndingTimeStamp(ctx)
+	if ctx.BlockTime().Unix() >= endingTimeStamp {
 		metrics.ReportFuncError(k.svcTags)
-		return nil, errors.Wrap(sdkerrors.ErrInvalidRequest, "Bid must exceed current highest bid")
+		return nil, errors.Wrap(types.ErrBidRound, "Bid round end timestamp is already reached")
 	}
 
-	// ensure last_bid * (1+min_next_increment_rate) <= new_bid
+	lastBid := k.GetHighestBid(ctx)
+
+	isFirstBidder := !lastBid.Amount.Amount.IsPositive()
+	isCurrentBidder := lastBid.Bidder == msg.Sender
+
+	var amountToDeposit sdk.Coin
+	if isCurrentBidder {
+		if msg.BidAmount.IsLT(lastBid.Amount) {
+			metrics.ReportFuncError(k.svcTags)
+			return nil, errors.Wrapf(sdkerrors.ErrInvalidRequest, "new bid must be >= previous bid")
+		}
+		amountToDeposit = msg.BidAmount.Sub(lastBid.Amount)
+	} else {
+		amountToDeposit = msg.BidAmount
+	}
+
+	// ensure last_bid * (1+min_next_increment_rate) <= msg.BidAmount
 	if lastBid.Amount.Amount.ToLegacyDec().Mul(math.LegacyOneDec().Add(params.MinNextBidIncrementRate)).GT(msg.BidAmount.Amount.ToLegacyDec()) {
 		metrics.ReportFuncError(k.svcTags)
 		return nil, errors.Wrapf(sdkerrors.ErrInvalidRequest, "new bid should be bigger than last bid + min increment percentage")
 	}
 
-	// process bid
-	senderAddr, err := sdk.AccAddressFromBech32(msg.Sender)
-	if err != nil {
+	depositAmount := sdk.NewCoins(amountToDeposit)
+	if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, senderAddr, types.ModuleName, depositAmount); err != nil {
 		metrics.ReportFuncError(k.svcTags)
-		return nil, errors.Wrap(err, "invalid sender address")
-	}
-
-	// deposit new bid
-	newBidAmount := sdk.NewCoins(msg.BidAmount)
-	if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, senderAddr, types.ModuleName, newBidAmount); err != nil {
-		metrics.ReportFuncError(k.svcTags)
-		k.Logger(ctx).Error("Bidder deposit failed", "senderAddr", senderAddr.String(), "coin", msg.BidAmount.String())
+		k.Logger(ctx).Error("Bidder deposit failed", "senderAddr", senderAddr.String(), "coin", amountToDeposit.String())
 		return nil, errors.Wrap(err, "deposit failed")
 	}
 
-	// check first bidder
-	isFirstBidder := !lastBid.Amount.Amount.IsPositive()
-	if !isFirstBidder {
+	// Only refund if there was a previous bidder AND it's not the current bidder increasing
+	if !isFirstBidder && !isCurrentBidder {
 		err := k.refundLastBidder(ctx)
 		if err != nil {
 			metrics.ReportFuncError(k.svcTags)
@@ -124,10 +126,8 @@ func (k msgServer) Bid(goCtx context.Context, msg *types.MsgBid) (*types.MsgBidR
 		}
 	}
 
-	// set new bid to store
 	k.SetBid(ctx, msg.Sender, msg.BidAmount)
 
-	// emit typed event for bid
 	_ = ctx.EventManager().EmitTypedEvent(&types.EventBid{
 		Bidder: msg.Sender,
 		Amount: msg.BidAmount,

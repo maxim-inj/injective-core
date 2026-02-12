@@ -69,6 +69,19 @@ To run all unit tests:
 $ go test ./injective-chain/...
 ```
 
+## Codex Review Workflow
+
+The `Codex Code Review` GitHub Action can be triggered manually with a PR ID.
+
+UI steps:
+- Go to Actions > Codex Code Review > Run workflow
+- Enter `pr_number` and run
+
+CLI example (requires `gh`):
+```bash
+$ gh workflow run codex-review.yml -f pr_number=1234
+```
+
 ## License
 
 Injective Core is licensed under the [Injective Labs License](LICENSE).

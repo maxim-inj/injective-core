@@ -141,7 +141,7 @@ func (k *Keeper) RemoveFromOutgoingPoolAndRefund(ctx sdk.Context, txId uint64, s
 	isCosmosOriginated, denom := k.ERC20ToDenomLookup(ctx, common.HexToAddress(tx.Erc20Token.Contract))
 	// native cosmos coin denom
 	if denom == k.GetCosmosCoinDenom(ctx) || isCosmosOriginated {
-		// injective native denom (inj or something else)
+		// peggy denom
 		totalToRefund := sdk.NewCoin(denom, tx.Erc20Token.Amount)
 		totalToRefund.Amount = totalToRefund.Amount.Add(tx.Erc20Fee.Amount)
 		totalToRefundCoins = sdk.NewCoins(totalToRefund)
@@ -358,11 +358,60 @@ func (k *Keeper) IterateOutgoingPoolByFee(ctx sdk.Context, tokenContract common.
 // have if created. This info is both presented to relayers for the purpose of determining
 // when to request batches and also used by the batch creation process to decide not to create
 // a new batch
-func (k *Keeper) GetBatchFeesByTokenType(ctx sdk.Context, tokenContractAddr common.Address) (*types.BatchFees, error) {
+func (k *Keeper) GetBatchFeesByTokenType(
+	ctx sdk.Context,
+	tokenAddr common.Address,
+	maxTransactions int,
+) (*types.BatchFees, error) {
 	ctx, doneFn := metrics.ReportFuncCallAndTimingSdkCtx(ctx, k.svcTags)
 	defer doneFn()
 
-	return k.getBatchFeesForToken(ctx, tokenContractAddr)
+	store := ctx.KVStore(k.storeKey)
+	tokenFeesPrefix := make([]byte, 0, len(types.SecondIndexOutgoingTXFeeKey)+len(tokenAddr))
+	tokenFeesPrefix = append(tokenFeesPrefix, types.SecondIndexOutgoingTXFeeKey...)
+	tokenFeesPrefix = append(tokenFeesPrefix, tokenAddr.Bytes()...)
+	tokenFeesStore := prefix.NewStore(store, tokenFeesPrefix)
+
+	iter := tokenFeesStore.Iterator(nil, nil)
+	defer iter.Close()
+
+	txCount := 0
+	totalFees := math.ZeroInt()
+
+	// the entry for a given key is actually a list of tx IDs that have the same fee
+	// meaning that it's possible for a single key to actually represent multiple fee amounts
+	// e.g. for some token contract ABC:
+	//
+	// [fee_of_20_something] -> [tx1, tx2, tx3] where each tx had a fee of 20
+	// [fee_of_5_something] -> [tx4, tx5] where each tx had a fee of 5
+	//
+	// total fees for contract ABC is 20x3 + 5x2 = 70
+	for ; iter.Valid(); iter.Next() {
+		var txIDs types.IDSet
+		k.cdc.MustUnmarshal(iter.Value(), &txIDs)
+
+		num := len(txIDs.Ids)
+		feeAmountKey := big.NewInt(0).SetBytes(iter.Key())
+		feeAmount := math.NewIntFromBigInt(feeAmountKey)
+
+		// they all have the same fee amount
+		for range num {
+			newFee, err := totalFees.SafeAdd(feeAmount)
+			if err != nil {
+				metrics.ReportFuncError(k.svcTags)
+				return nil, errors.Wrapf(err, "failed to sum batch fees")
+			}
+
+			totalFees = newFee
+			txCount++
+
+			if txCount == maxTransactions {
+				break
+			}
+		}
+	}
+
+	return &types.BatchFees{Token: tokenAddr.Hex(), TotalFees: totalFees}, nil
 }
 
 // GetAllBatchFees creates a fee entry for every batch type currently in the store
@@ -384,46 +433,6 @@ func (k *Keeper) GetAllBatchFees(ctx sdk.Context) (batchFees []*types.BatchFees)
 	})
 
 	return batchFees
-}
-
-func (k *Keeper) getBatchFeesForToken(ctx sdk.Context, tokenContractAddr common.Address) (*types.BatchFees, error) {
-	ctx, doneFn := metrics.ReportFuncCallAndTimingSdkCtx(ctx, k.svcTags)
-	defer doneFn()
-
-	prefixStore := prefix.NewStore(ctx.KVStore(k.storeKey), append(types.SecondIndexOutgoingTXFeeKey, tokenContractAddr.Bytes()...))
-	iter := prefixStore.Iterator(nil, nil)
-	defer iter.Close()
-
-	totalFee := math.ZeroInt()
-
-	// the entry for a given key is actually a list of tx IDs that have the same fee
-	// meaning that it's possible for a single key to actually represent multiple fee amounts
-	// e.g. for some token contract ABC:
-	//
-	// [fee_of_20_something] -> [tx1, tx2, tx3] where each tx had a fee of 20
-	// [fee_of_5_something] -> [tx4, tx5] where each tx had a fee of 5
-	//
-	// total fees for contract ABC is 20x3 + 5x2 = 70
-	for ; iter.Valid(); iter.Next() {
-		var txIDs types.IDSet
-		k.cdc.MustUnmarshal(iter.Value(), &txIDs)
-
-		feeAmountBytes := iter.Key()
-		feeAmount := math.NewIntFromBigInt(big.NewInt(0).SetBytes(feeAmountBytes))
-
-		for range txIDs.Ids {
-			// they all have the same fee amount
-			fee, err := totalFee.SafeAdd(feeAmount)
-			if err != nil {
-				metrics.ReportFuncError(k.svcTags)
-				return nil, errors.Wrapf(err, "failed to sum batch fees")
-			}
-
-			totalFee = fee
-		}
-	}
-
-	return &types.BatchFees{Token: tokenContractAddr.Hex(), TotalFees: totalFee}, nil
 }
 
 // CreateBatchFees iterates over the outgoing pool and creates batch token fee map

@@ -7,30 +7,11 @@ import (
 	"fmt"
 	"os"
 	"strconv"
-	"sync"
 	"testing"
 	"time"
 
 	"cosmossdk.io/math"
-	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
-	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
-	"github.com/docker/docker/client"
-	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/strangelove-ventures/interchaintest/v8/chain/ethereum"
-	"github.com/strangelove-ventures/interchaintest/v8/chain/ethereum/geth"
-
 	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
-	cosmtestutil "github.com/cosmos/cosmos-sdk/types/module/testutil"
-	authztypes "github.com/cosmos/cosmos-sdk/x/authz"
-	"github.com/strangelove-ventures/interchaintest/v8"
-	"github.com/strangelove-ventures/interchaintest/v8/chain/cosmos"
-	"github.com/strangelove-ventures/interchaintest/v8/ibc"
-	"github.com/strangelove-ventures/interchaintest/v8/testreporter"
-	"github.com/strangelove-ventures/interchaintest/v8/testutil"
-	"github.com/stretchr/testify/require"
-	"go.uber.org/zap/zaptest"
-
-	"github.com/InjectiveLabs/injective-core/interchaintest/helpers"
 	chaincodec "github.com/InjectiveLabs/sdk-go/chain/codec"
 	erc20types "github.com/InjectiveLabs/sdk-go/chain/erc20/types"
 	evmtypes "github.com/InjectiveLabs/sdk-go/chain/evm/types"
@@ -42,11 +23,32 @@ import (
 	permissionstypes "github.com/InjectiveLabs/sdk-go/chain/permissions/types"
 	tokenfactorytypes "github.com/InjectiveLabs/sdk-go/chain/tokenfactory/types"
 	wasmxtypes "github.com/InjectiveLabs/sdk-go/chain/wasmx/types"
-
+	"github.com/avast/retry-go/v4"
 	ismtypes "github.com/bcp-innovations/hyperlane-cosmos/x/core/01_interchain_security/types"
 	pdtypes "github.com/bcp-innovations/hyperlane-cosmos/x/core/02_post_dispatch/types"
 	hyperlanetypes "github.com/bcp-innovations/hyperlane-cosmos/x/core/types"
 	warptypes "github.com/bcp-innovations/hyperlane-cosmos/x/warp/types"
+	cosmtestutil "github.com/cosmos/cosmos-sdk/types/module/testutil"
+	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
+	authztypes "github.com/cosmos/cosmos-sdk/x/authz"
+	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/strangelove-ventures/interchaintest/v8"
+	"github.com/strangelove-ventures/interchaintest/v8/chain/cosmos"
+	"github.com/strangelove-ventures/interchaintest/v8/chain/ethereum"
+	"github.com/strangelove-ventures/interchaintest/v8/chain/ethereum/geth"
+	"github.com/strangelove-ventures/interchaintest/v8/ibc"
+	"github.com/strangelove-ventures/interchaintest/v8/testreporter"
+	"github.com/strangelove-ventures/interchaintest/v8/testutil"
+	"github.com/stretchr/testify/require"
+	"go.uber.org/zap/zaptest"
+
+	"github.com/InjectiveLabs/injective-core/interchaintest/helpers"
+)
+
+const (
+	InjectiveGovVotingPeriod     = 30 * time.Second
+	InjectiveGovMaxDepositPeriod = 20 * time.Second
 )
 
 var (
@@ -63,14 +65,19 @@ var (
 		UIDGID:     "1025:1025",
 	}
 
+	BuildChainOpts = []retry.Option{
+		retry.Delay(500 * time.Millisecond),
+		retry.Attempts(42),
+	}
+
 	defaultGenesisOverridesKV = []cosmos.GenesisKV{
 		{
 			Key:   "app_state.gov.params.voting_period",
-			Value: "15s",
+			Value: InjectiveGovVotingPeriod.String(),
 		},
 		{
 			Key:   "app_state.gov.params.max_deposit_period",
-			Value: "10s",
+			Value: InjectiveGovMaxDepositPeriod.String(),
 		},
 		{
 			Key:   "app_state.gov.params.min_deposit.0.denom",
@@ -112,9 +119,12 @@ func injectiveEncoding() *cosmtestutil.TestEncodingConfig {
 func InjectiveChainConfig(
 	genesisOverrides ...cosmos.GenesisKV,
 ) ibc.ChainConfig {
-	if len(genesisOverrides) == 0 {
-		genesisOverrides = defaultGenesisOverridesKV
-	}
+	// Merge genesisOverrides with defaults, where genesisOverrides take precedence
+	// Start with defaults, then append overrides so they take precedence (last wins)
+	mergedOverrides := make([]cosmos.GenesisKV, 0, len(defaultGenesisOverridesKV)+len(genesisOverrides))
+	mergedOverrides = append(mergedOverrides, defaultGenesisOverridesKV...)
+	mergedOverrides = append(mergedOverrides, genesisOverrides...)
+	genesisOverrides = mergedOverrides
 
 	consensusOverrides := make(testutil.Toml)
 	consensusOverrides["timeout_propose"] = "1s"
@@ -135,11 +145,17 @@ func InjectiveChainConfig(
 
 	jsonRpcOverrides := make(testutil.Toml)
 	jsonRpcOverrides["address"] = "0.0.0.0:8545"
-	jsonRpcOverrides["api"] = "eth,net,web3,debug"
+	jsonRpcOverrides["api"] = "eth,net,web3,debug,inj"
+
+	// Configure websocket server for chainstream
+	websocketOverrides := make(testutil.Toml)
+	websocketOverrides["address"] = "0.0.0.0:9998"
+	websocketOverrides["max-open-connections"] = 100
 
 	appTomlOverrides := make(testutil.Toml)
 	appTomlOverrides["json-rpc"] = jsonRpcOverrides
 	appTomlOverrides["chainstream-server"] = "0.0.0.0:9999"
+	appTomlOverrides["injective-websocket"] = websocketOverrides
 
 	config := ibc.ChainConfig{
 		Type: "cosmos",
@@ -164,6 +180,7 @@ func InjectiveChainConfig(
 		ExposeAdditionalPorts: []string{
 			"8545/tcp", // open the port for the EVM on all nodes
 			"9999/tcp", // open the port for the chainstream server on all nodes
+			"9998/tcp", // open the port for the websocket server on all nodes
 		},
 		ConfigFileOverrides: map[string]any{
 			"config/app.toml":    appTomlOverrides,
@@ -215,33 +232,19 @@ func GethChainConfig() ibc.ChainConfig {
 	}
 }
 
-// todo: this mux is a best-attempt at preventing the following (flaky) error on CI:
-// 		Error while waiting for container 646d78768fd803371e6778f78efc818d9c615a2e5dc24f8f81b3e620e3dbce01 during docker cleanup:
-//		failed to set up container networking: driver failed programming external connectivity on endpoint injtest-1-val-3-TestMempoolLanesSingleUser
-//		(503db836c024204536d0749f98509c42ab2217bfd5afe8992c7f82795664ae65): Bind for 0.0.0.0:33113 failed: port is already allocated
-// Proper fix would be in our fork of interchaintest as that's when docker attempts to bind the ports (CI interchain is run in parallel)
-
-var dockerMux sync.Mutex
-
-func SetupDocker(t *testing.T) (*client.Client, string) {
-	dockerMux.Lock()
-	defer dockerMux.Unlock()
-	return interchaintest.DockerSetup(t)
-}
-
-type ConcurrentInterchain struct {
-	*interchaintest.Interchain
-}
-
-func (ci ConcurrentInterchain) Build(
-	ctx context.Context,
-	rep *testreporter.RelayerExecReporter,
-	opts interchaintest.InterchainBuildOptions,
-) error {
-	dockerMux.Lock()
-	defer dockerMux.Unlock()
-	return ci.Interchain.Build(ctx, rep, opts)
-}
+//// todo: this mux is a best-attempt at preventing the following (flaky) error on CI:
+//// 		Error while waiting for container 646d78768fd803371e6778f78efc818d9c615a2e5dc24f8f81b3e620e3dbce01 during docker cleanup:
+////		failed to set up container networking: driver failed programming external connectivity on endpoint injtest-1-val-3-TestMempoolLanesSingleUser
+////		(503db836c024204536d0749f98509c42ab2217bfd5afe8992c7f82795664ae65): Bind for 0.0.0.0:33113 failed: port is already allocated
+//// Proper fix would be in our fork of interchaintest as that's when docker attempts to bind the ports (CI interchain is run in parallel)
+//
+//var dockerMux sync.Mutex
+//
+//func SetupDocker(t *testing.T) (*client.Client, string) {
+//	dockerMux.Lock()
+//	defer dockerMux.Unlock()
+//	return interchaintest.DockerSetup(t)
+//}
 
 func CreateChain(
 	t *testing.T,
@@ -274,9 +277,9 @@ func CreateChain(
 	}
 
 	ic := interchaintest.NewInterchain().AddChain(chain)
-	client, network := SetupDocker(t)
+	client, network := interchaintest.DockerSetup(t)
 
-	err = ConcurrentInterchain{ic}.Build(
+	require.NoError(t, ic.Build(
 		ctx,
 		testreporter.NewNopReporter().RelayerExecReporter(t),
 		interchaintest.InterchainBuildOptions{
@@ -285,8 +288,7 @@ func CreateChain(
 			NetworkID:        network,
 			SkipPathCreation: true,
 		},
-	)
-	require.NoError(t, err)
+	))
 
 	return ic, chain
 }
@@ -318,9 +320,9 @@ func WireUpPeggo(
 	eth3 := crypto.PubkeyToAddress(ethPk3.PublicKey).String()
 
 	nodes := cosmosChain.Nodes()
-	helpers.RegisterOrchestrator(t, ctx, nodes[0], v1, eth1)
-	helpers.RegisterOrchestrator(t, ctx, nodes[1], v2, eth2)
-	helpers.RegisterOrchestrator(t, ctx, nodes[2], v3, eth3)
+	helpers.RegisterOrchestrator(t, ctx, cosmosChain, nodes[0], v1, eth1)
+	helpers.RegisterOrchestrator(t, ctx, cosmosChain, nodes[1], v2, eth2)
+	helpers.RegisterOrchestrator(t, ctx, cosmosChain, nodes[2], v3, eth3)
 	time.Sleep(1 * time.Second)
 
 	vs := helpers.GetCurrentValset(t, ctx, cosmosChain)
@@ -396,7 +398,7 @@ func WireUpPeggo(
 			node.NetworkID,
 			InjectiveCoreImage,
 			node.HomeDir(),
-			nil,
+			[]string{"7070/tcp"},
 			[]string{"peggo", "orchestrator"},
 			peggoDefaults,
 		)

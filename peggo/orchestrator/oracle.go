@@ -3,15 +3,14 @@ package orchestrator
 import (
 	"context"
 	"sort"
-	"time"
 
+	"github.com/InjectiveLabs/coretracer"
 	"github.com/pkg/errors"
 	log "github.com/xlab/suplog"
 
 	peggytypes "github.com/InjectiveLabs/injective-core/injective-chain/modules/peggy/types"
 	"github.com/InjectiveLabs/injective-core/peggo/orchestrator/loops"
 	peggyevents "github.com/InjectiveLabs/injective-core/peggo/solidity/wrappers/Peggy"
-	"github.com/InjectiveLabs/metrics"
 )
 
 const (
@@ -33,6 +32,7 @@ func (s *Orchestrator) runOracle(ctx context.Context, lastObservedBlock uint64) 
 		Orchestrator:               s,
 		lastRecordedEthEventHeight: lastObservedBlock,
 		queryRange:                 defaultBlocksToSearch,
+		svcTags:                    coretracer.NewTag("svc", "oracle"),
 	}
 
 	s.logger.WithField("loop_duration", s.cfg.LoopDuration.String()).Debugln("starting Oracle...")
@@ -46,6 +46,7 @@ type oracle struct {
 	*Orchestrator
 	lastRecordedEthEventHeight uint64
 	queryRange                 uint64
+	svcTags                    coretracer.Tags
 }
 
 func (l *oracle) Log() log.Logger {
@@ -53,13 +54,12 @@ func (l *oracle) Log() log.Logger {
 }
 
 func (l *oracle) observeEthEvents(ctx context.Context) error {
-	metrics.ReportFuncCall(l.svcTags)
-	doneFn := metrics.ReportFuncTiming(l.svcTags)
-	defer doneFn()
+	defer coretracer.Trace(&ctx, l.svcTags)()
 
 	// check if validator is in the active set since claims will fail otherwise
 	vs, err := l.injective.CurrentValset(ctx)
 	if err != nil {
+		coretracer.TraceError(ctx, err)
 		l.logger.WithError(err).Warningln("failed to get active validator set on Injective")
 		return err
 	}
@@ -78,6 +78,7 @@ func (l *oracle) observeEthEvents(ctx context.Context) error {
 
 	latestHeight, err := l.getLatestEthHeight(ctx)
 	if err != nil {
+		coretracer.TraceError(ctx, err)
 		return err
 	}
 
@@ -105,11 +106,13 @@ func (l *oracle) observeEthEvents(ctx context.Context) error {
 
 	events, err := l.getEthEvents(ctx, l.lastRecordedEthEventHeight, latestHeight)
 	if err != nil {
+		coretracer.TraceError(ctx, err)
 		return err
 	}
 
 	lastClaim, err := l.getLastClaimEvent(ctx)
 	if err != nil {
+		coretracer.TraceError(ctx, err)
 		return err
 	}
 
@@ -149,6 +152,7 @@ func (l *oracle) observeEthEvents(ctx context.Context) error {
 	}
 
 	if err := l.sendNewEventClaims(ctx, newEvents); err != nil {
+		coretracer.TraceError(ctx, err)
 		return err
 	}
 
@@ -176,6 +180,8 @@ func (l *oracle) resetQueryRange() {
 }
 
 func (l *oracle) getEthEvents(ctx context.Context, startBlock, endBlock uint64) ([]event, error) {
+	defer coretracer.Trace(&ctx, l.svcTags)()
+
 	var events []event
 	scanEthEventsFn := func() error {
 		events = nil // clear previous result in case a retry occurred
@@ -183,7 +189,7 @@ func (l *oracle) getEthEvents(ctx context.Context, startBlock, endBlock uint64) 
 		// Given the provider limit on eth_getLogs (10k logs max) and a spam attack of SendToInjective events on Peggy.sol,
 		// it is possible for the following call to fail if the range is even 5 blocks long. In case this happens,
 		// the query range is reduced to length of 1 and eventually increases back to defaultBlocksToSearch.
-		depositEvents, err := l.ethereum.GetSendToInjectiveEvents(startBlock, endBlock)
+		depositEvents, err := l.ethereum.GetSendToInjectiveEvents(ctx, startBlock, endBlock)
 		if err != nil {
 
 			l.queryRange = 1
@@ -196,17 +202,17 @@ func (l *oracle) getEthEvents(ctx context.Context, startBlock, endBlock uint64) 
 			return err
 		}
 
-		withdrawalEvents, err := l.ethereum.GetTransactionBatchExecutedEvents(startBlock, endBlock)
+		withdrawalEvents, err := l.ethereum.GetTransactionBatchExecutedEvents(ctx, startBlock, endBlock)
 		if err != nil {
 			return err
 		}
 
-		erc20DeploymentEvents, err := l.ethereum.GetPeggyERC20DeployedEvents(startBlock, endBlock)
+		erc20DeploymentEvents, err := l.ethereum.GetPeggyERC20DeployedEvents(ctx, startBlock, endBlock)
 		if err != nil {
 			return err
 		}
 
-		valsetUpdateEvents, err := l.ethereum.GetValsetUpdatedEvents(startBlock, endBlock)
+		valsetUpdateEvents, err := l.ethereum.GetValsetUpdatedEvents(ctx, startBlock, endBlock)
 		if err != nil {
 			return err
 		}
@@ -242,6 +248,8 @@ func (l *oracle) getEthEvents(ctx context.Context, startBlock, endBlock uint64) 
 }
 
 func (l *oracle) getLatestEthHeight(ctx context.Context) (uint64, error) {
+	defer coretracer.Trace(&ctx, l.svcTags)()
+
 	latestHeight := uint64(0)
 	fn := func() error {
 		h, err := l.ethereum.GetHeaderByNumber(ctx, nil)
@@ -275,6 +283,8 @@ func (l *oracle) getLastClaimEvent(ctx context.Context) (*peggytypes.LastClaimEv
 }
 
 func (l *oracle) sendNewEventClaims(ctx context.Context, events []event) error {
+	defer coretracer.Trace(&ctx, l.svcTags)()
+
 	sendEventsFn := func() error {
 		// in case sending one of more claims fails, we reload the latest claimed nonce to filter processed events
 		lastClaim, err := l.injective.LastClaimEventByAddr(ctx, l.cfg.CosmosAddr)
@@ -291,10 +301,6 @@ func (l *oracle) sendNewEventClaims(ctx context.Context, events []event) error {
 			if err := l.sendEthEventClaim(ctx, event); err != nil {
 				return err
 			}
-
-			// Considering block time ~1s on Injective chain, adding Sleep to make sure new event is sent
-			// only after previous event is executed successfully. Otherwise it will through `non contiguous event nonce` failing CheckTx.
-			time.Sleep(1100 * time.Millisecond)
 		}
 
 		return nil
@@ -308,6 +314,8 @@ func (l *oracle) sendNewEventClaims(ctx context.Context, events []event) error {
 }
 
 func (l *oracle) sendEthEventClaim(ctx context.Context, ev event) error {
+	defer coretracer.Trace(&ctx, l.svcTags)()
+
 	switch e := ev.(type) {
 	case *deposit:
 		ev := peggyevents.PeggySendToInjectiveEvent(*e)

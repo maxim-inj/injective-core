@@ -4,12 +4,12 @@ import (
 	"context"
 	"math/big"
 
+	"github.com/InjectiveLabs/coretracer"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/pkg/errors"
 	log "github.com/xlab/suplog"
 
 	peggytypes "github.com/InjectiveLabs/injective-core/injective-chain/modules/peggy/types"
-	"github.com/InjectiveLabs/metrics"
 )
 
 func (s *peggyContract) SendTransactionBatch(
@@ -18,9 +18,7 @@ func (s *peggyContract) SendTransactionBatch(
 	batch *peggytypes.OutgoingTxBatch,
 	confirms []*peggytypes.MsgConfirmBatch,
 ) (*common.Hash, error) {
-	metrics.ReportFuncCall(s.svcTags)
-	doneFn := metrics.ReportFuncTiming(s.svcTags)
-	defer doneFn()
+	defer coretracer.Trace(&ctx, s.svcTags)
 
 	log.WithFields(log.Fields{
 		"token_contract": batch.TokenContract,
@@ -31,9 +29,8 @@ func (s *peggyContract) SendTransactionBatch(
 
 	validators, powers, sigV, sigR, sigS, err := checkBatchSigsAndRepack(currentValset, confirms)
 	if err != nil {
-		metrics.ReportFuncError(s.svcTags)
-		err = errors.Wrap(err, "confirmations check failed")
-		return nil, err
+		coretracer.TraceError(ctx, err)
+		return nil, errors.Wrap(err, "confirmations check failed")
 	}
 
 	amounts, destinations, fees := getBatchCheckpointValues(batch)
@@ -80,7 +77,7 @@ func (s *peggyContract) SendTransactionBatch(
 		batchTimeout,
 	)
 	if err != nil {
-		metrics.ReportFuncError(s.svcTags)
+		coretracer.TraceError(ctx, err)
 		log.WithError(err).Errorln("ABI Pack (Peggy submitBatch) method")
 		return nil, err
 	}
@@ -92,7 +89,7 @@ func (s *peggyContract) SendTransactionBatch(
 
 	txHash, err := s.SendTx(ctx, s.peggyAddress, txData)
 	if err != nil {
-		metrics.ReportFuncError(s.svcTags)
+		coretracer.TraceError(ctx, err)
 		return nil, err
 	}
 

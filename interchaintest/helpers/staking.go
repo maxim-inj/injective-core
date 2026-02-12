@@ -2,112 +2,73 @@ package helpers
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
-	"time"
 
-	"cosmossdk.io/math"
+	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	"github.com/strangelove-ventures/interchaintest/v8/chain/cosmos"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
-// QueryAllValidators lists all validators
-func QueryAllValidators(t *testing.T, ctx context.Context, chainNode *cosmos.ChainNode) []Validator {
-	stdout, _, err := chainNode.ExecQuery(ctx, "staking", "validators")
-	require.NoError(t, err)
+// QueryAllValidators lists all validators using gRPC.
+func QueryAllValidators(t *testing.T, ctx context.Context, chain *cosmos.CosmosChain) []stakingtypes.Validator {
+	t.Helper()
 
-	debugOutput(t, string(stdout))
+	conn, err := grpc.NewClient(chain.GetHostGRPCAddress(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err, "failed to create gRPC connection")
+	defer conn.Close()
 
-	var resp queryValidatorsResponse
-	err = json.Unmarshal([]byte(stdout), &resp)
-	require.NoError(t, err)
+	queryClient := stakingtypes.NewQueryClient(conn)
+	resp, err := QueryRPC(ctx, queryClient.Validators, &stakingtypes.QueryValidatorsRequest{})
+	require.NoError(t, err, "error querying validators")
 
 	return resp.Validators
 }
 
-// QueryValidator gets info about particular validator
+// QueryValidator gets info about particular validator using gRPC.
 func QueryValidator(
 	t *testing.T,
 	ctx context.Context,
-	chainNode *cosmos.ChainNode,
+	chain *cosmos.CosmosChain,
 	valoperAddr string,
-) Validator {
-	stdout, _, err := chainNode.ExecQuery(ctx, "staking", "validator", valoperAddr)
-	require.NoError(t, err)
+) stakingtypes.Validator {
+	t.Helper()
 
-	debugOutput(t, string(stdout))
+	conn, err := grpc.NewClient(chain.GetHostGRPCAddress(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err, "failed to create gRPC connection")
+	defer conn.Close()
 
-	var validator Validator
-	err = json.Unmarshal([]byte(stdout), &validator)
-	require.NoError(t, err)
+	queryClient := stakingtypes.NewQueryClient(conn)
+	resp, err := QueryRPC(ctx, queryClient.Validator, &stakingtypes.QueryValidatorRequest{
+		ValidatorAddr: valoperAddr,
+	})
+	require.NoError(t, err, "error querying validator")
 
-	return validator
+	return resp.Validator
 }
 
-// QueryDelegation gets info about particular delegation
+// QueryDelegation gets info about particular delegation using gRPC.
 func QueryDelegation(
 	t *testing.T,
 	ctx context.Context,
-	chainNode *cosmos.ChainNode,
+	chain *cosmos.CosmosChain,
 	delegatorAddr string,
 	valoperAddr string,
-) Delegation {
-	stdout, _, err := chainNode.ExecQuery(ctx, "staking", "delegation", delegatorAddr, valoperAddr)
-	require.NoError(t, err)
+) stakingtypes.Delegation {
+	t.Helper()
 
-	debugOutput(t, string(stdout))
+	conn, err := grpc.NewClient(chain.GetHostGRPCAddress(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err, "failed to create gRPC connection")
+	defer conn.Close()
 
-	var resp queryDelegationResponse
-	err = json.Unmarshal([]byte(stdout), &resp)
-	require.NoError(t, err)
+	queryClient := stakingtypes.NewQueryClient(conn)
+	resp, err := QueryRPC(ctx, queryClient.Delegation, &stakingtypes.QueryDelegationRequest{
+		DelegatorAddr: delegatorAddr,
+		ValidatorAddr: valoperAddr,
+	})
+	require.NoError(t, err, "error querying delegation")
+	require.NotNil(t, resp.DelegationResponse, "delegation response is nil")
 
-	return resp.Delegation
-}
-
-type queryDelegationResponse struct {
-	Delegation Delegation `json:"delegation"`
-}
-
-type Delegation struct {
-	DelegatorAddress string         `json:"delegator_address"`
-	ValidatorAddress string         `json:"validator_address"`
-	Shares           math.LegacyDec `json:"shares"`
-}
-
-type queryValidatorsResponse struct {
-	Validators []Validator `json:"validators"`
-
-	Pagination struct {
-		Total string `json:"total"`
-	} `json:"pagination"`
-}
-
-type Validator struct {
-	OperatorAddress string `json:"operator_address"`
-
-	ConsensusPubkey struct {
-		Type  string `json:"type"`
-		Value string `json:"value"`
-	} `json:"consensus_pubkey"`
-
-	Status          string `json:"status"`
-	Tokens          string `json:"tokens"`
-	DelegatorShares string `json:"delegator_shares"`
-
-	Description struct {
-		Moniker string `json:"moniker"`
-	} `json:"description"`
-
-	UnbondingTime time.Time `json:"unbonding_time"`
-
-	Commission struct {
-		CommissionRates struct {
-			Rate          string `json:"rate"`
-			MaxRate       string `json:"max_rate"`
-			MaxChangeRate string `json:"max_change_rate"`
-		} `json:"commission_rates"`
-		UpdateTime time.Time `json:"update_time"`
-	} `json:"commission"`
-
-	MinSelfDelegation string `json:"min_self_delegation"`
+	return resp.DelegationResponse.Delegation
 }

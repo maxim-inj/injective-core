@@ -25,8 +25,6 @@ import (
 	"github.com/InjectiveLabs/injective-core/injective-chain/modules/oracle/client/cli"
 	"github.com/InjectiveLabs/injective-core/injective-chain/modules/oracle/keeper"
 	"github.com/InjectiveLabs/injective-core/injective-chain/modules/oracle/types"
-
-	porttypes "github.com/cosmos/ibc-go/v8/modules/core/05-port/types"
 )
 
 // type check to ensure the interface is properly implemented
@@ -39,7 +37,6 @@ var (
 	_ appmodule.AppModule       = AppModule{}
 	_ appmodule.HasBeginBlocker = AppModule{}
 	_ appmodule.HasEndBlocker   = AppModule{}
-	_ porttypes.IBCModule       = AppModule{}
 )
 
 const ConsensusVersion = 2
@@ -159,7 +156,6 @@ func (am AppModule) BeginBlock(ctx context.Context) error {
 }
 
 func (am AppModule) EndBlock(ctx context.Context) error {
-	EndBlocker(sdk.UnwrapSDKContext(ctx))
 	return nil
 }
 

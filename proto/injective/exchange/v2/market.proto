@@ -13,9 +13,24 @@ enum MarketStatus {
   Paused = 2;
   Demolished = 3;
   Expired = 4;
+  ForcePaused = 5;
+}
+
+enum ForcePausedReason {
+  QuoteDenomPaused = 0;
+}
+
+message ForcePausedInfo {
+  ForcePausedReason reason = 1;
+  string mark_price_at_pausing = 2 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = true
+  ];
 }
 
 message OpenNotionalCap {
+  option (amino.name) = "injective.exchange.v2.OpenNotionalCap";
+
   oneof cap {
     OpenNotionalCapUncapped uncapped = 1
         [ (amino.oneof_name) =
@@ -25,9 +40,12 @@ message OpenNotionalCap {
   }
 }
 
-message OpenNotionalCapUncapped {}
+message OpenNotionalCapUncapped {
+  option (amino.name) = "injective.exchange.v2.OpenNotionalCapUncapped";
+}
 
 message OpenNotionalCapCapped {
+  option (amino.name) = "injective.exchange.v2.OpenNotionalCapCapped";
   string value = 1 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
@@ -101,6 +119,9 @@ message SpotMarket {
   uint32 base_decimals = 14;
   // quote token decimals
   uint32 quote_decimals = 15;
+  // has_disabled_minimal_protocol_fee indicates whether the minimal protocol
+  // fee is disabled for the market
+  bool has_disabled_minimal_protocol_fee = 16;
 }
 
 // An object describing a binary options market in Injective Protocol.
@@ -176,6 +197,14 @@ message BinaryOptionsMarket {
 
   // open_notional_cap defines the maximum open notional for the market
   OpenNotionalCap open_notional_cap = 21 [ (gogoproto.nullable) = false ];
+
+  // has_disabled_minimal_protocol_fee indicates whether the minimal protocol
+  // fee is disabled for the market
+  bool has_disabled_minimal_protocol_fee = 22;
+
+  // force_paused_info defines additional info for force paused markets, only
+  // set when status == ForcePaused
+  ForcePausedInfo force_paused_info = 23;
 }
 
 // An object describing a derivative market in the Injective Futures Protocol.
@@ -263,6 +292,14 @@ message DerivativeMarket {
 
   // open_notional_cap defines the maximum open notional for the market
   OpenNotionalCap open_notional_cap = 22 [ (gogoproto.nullable) = false ];
+
+  // has_disabled_minimal_protocol_fee indicates whether the minimal protocol
+  // fee is disabled for the market
+  bool has_disabled_minimal_protocol_fee = 23;
+
+  // force_paused_info defines additional info for force paused markets, only
+  // set when status == ForcePaused
+  ForcePausedInfo force_paused_info = 24;
 }
 
 message DerivativeMarketSettlementInfo {

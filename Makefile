@@ -65,6 +65,9 @@ image:
 	docker tag $(IMAGE_NAME):local $(IMAGE_NAME):$(GIT_COMMIT)
 	docker tag $(IMAGE_NAME):local $(IMAGE_NAME):latest
 
+image-foundry-deployer:
+	docker build -t injectivelabs/injective-foundry-deployer:local -f interchaintest/foundry/Dockerfile .
+
 push:
 	docker push $(IMAGE_NAME):$(GIT_COMMIT)
 	docker push $(IMAGE_NAME):latest
@@ -110,7 +113,7 @@ install-ci:
 	@rm pkgs-injectived.txt pkgs-peggo.txt
 
 .PHONY: init install install-ci install-injectived install-peggo
-.PHONY: image push gen lint lint-last-commit test mock cover
+.PHONY: image image-foundry-deployer push gen lint lint-last-commit test mock cover
 
 mock: tests/mocks.go
 	go install github.com/golang/mock/mockgen@latest
@@ -226,6 +229,11 @@ ictest-chainstream: rm-testcache
 	cd interchaintest && go test -timeout 30m -v -run Test_ChainStream_ConnectsAndReceivesEvents .
 	./scripts/coverage-html.sh interchaintest/coverage/Test_ChainStream_ConnectsAndReceivesEvents
 
+ictest-chainstream-websocket: rm-testcache
+	rm -rf interchaintest/coverage/Test_ChainStreamWebsocket_ConnectsAndReceivesEvents
+	cd interchaintest && go test -timeout 30m -v -run Test_ChainStreamWebsocket_ConnectsAndReceivesEvents .
+	./scripts/coverage-html.sh interchaintest/coverage/Test_ChainStreamWebsocket_ConnectsAndReceivesEvents
+
 ictest-downtime-detector: rm-testcache
 	rm -rf interchaintest/coverage/TestDowntimeDetector
 	cd interchaintest && go test -timeout 30m -v -run TestDowntimeDetector .
@@ -246,11 +254,25 @@ ictest-wasm-fees-to-auction: rm-testcache
 	cd interchaintest && go test -timeout 30m -v -run Test_WasmFeesGoToAuctionModule .
 	./scripts/coverage-html.sh interchaintest/coverage/Test_WasmFeesGoToAuctionModule
 
+ictest-circle: rm-testcache
+	rm -rf interchaintest/coverage/Test_Circle
+	cd interchaintest && go test -timeout 30m -v -run Test_Circle .
+	./scripts/coverage-html.sh interchaintest/coverage/Test_Circle
+
+ictest-chainlink-data-streams: rm-testcache
+	rm -rf interchaintest/coverage/TestChainlinkDataStreamsReports
+	cd interchaintest && go test -timeout 30m -v -run TestChainlinkDataStreamsReports .
+	./scripts/coverage-html.sh interchaintest/coverage/TestChainlinkDataStreamsReports
+
+ictest-peggy-bad-signature-replay: rm-testcache
+	rm -rf interchaintest/coverage/Test_PeggyBadSignatureEvidenceMalleabilityReplay
+	cd interchaintest && go test -timeout 30m -v -run Test_PeggyBadSignatureEvidenceMalleabilityReplay .
+	./scripts/coverage-html.sh interchaintest/coverage/Test_PeggyBadSignatureEvidenceMalleabilityReplay
 
 .PHONY: rm-testcache rm-ic-coverage
 .PHONY: ictest-all ictest-basic ictest-upgrade ictest-ibchooks ictest-permissions-wasm-hook ictest-pfm ictest-lanes
-.PHONY: ictest-fixed-gas ictest-fixed-gas-regression ictest-peggo ictest-peggo-ibc ictest-hyperlane ictest-evm
-.PHONY: ictest-downtime-detector ictest-chainstream ictest-validator-jailed ictest-wasm-fees-to-auction
+.PHONY: ictest-fixed-gas ictest-fixed-gas-regression ictest-peggo ictest-peggo-ibc ictest-hyperlane ictest-evm ictest-circle
+.PHONY: ictest-downtime-detector ictest-chainstream ictest-chainstream-websocket ictest-validator-jailed ictest-wasm-fees-to-auction ictest-chainlink-data-streams ictest-peggy-bad-signature-replay
 
 ###############################################################################
 

@@ -1,0 +1,77 @@
+name: Open source injective-core code to InjectiveFoundation/injective-core
+defaults:
+  run:
+    shell: bash -eo pipefail {0}
+on:
+  workflow_dispatch:
+    inputs:
+      app_tag:
+        description: "Tag to open source (e.g. v1.17.0, v1.18.0-beta)"
+        required: true
+        type: string
+      target_branch:
+        description: "Target branch in InjectiveFoundation/injective-core (must not be master)"
+        required: true
+        type: string
+
+jobs:
+  mirror-tagged-commit:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    env:
+      JENNAS_TOKEN: ${{ secrets.JENNA_OPEN_SOURCE_TOKEN }}
+      OS_REPO: "InjectiveFoundation/injective-core"
+    steps:
+      - name: Checkout source repository with tags
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository }}
+          token: ${{ github.token }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Resolve source tag and tagged commit
+        id: resolve
+        run: |
+          TAG="${{ github.event.inputs.app_tag }}"
+          TARGET_BRANCH="${{ github.event.inputs.target_branch }}"
+
+          if [[ -z "$TAG" ]]; then
+            echo "app_tag must be provided"
+            exit 1
+          fi
+
+          if [[ -z "$TARGET_BRANCH" ]]; then
+            echo "target_branch must be provided"
+            exit 1
+          fi
+
+          if [[ "$TARGET_BRANCH" == "master" ]]; then
+            echo "target_branch cannot be master"
+            exit 1
+          fi
+
+          if ! git check-ref-format --branch "$TARGET_BRANCH" >/dev/null 2>&1; then
+            echo "target_branch is not a valid branch name: $TARGET_BRANCH"
+            exit 1
+          fi
+
+          if ! git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "Tag '$TAG' does not exist in source repository"
+            exit 1
+          fi
+
+          TAG_COMMIT="$(git rev-list -n 1 "refs/tags/$TAG")"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "tag_commit=$TAG_COMMIT" >> "$GITHUB_OUTPUT"
+          echo "target_branch=$TARGET_BRANCH" >> "$GITHUB_OUTPUT"
+
+      - name: Mirror tagged commit and tag to target public branch
+        run: |
+          REMOTE_URL="https://achilleas-kal:${JENNAS_TOKEN}@github.com/${OS_REPO}.git"
+          TAG="${{ steps.resolve.outputs.tag }}"
+          TAG_COMMIT="${{ steps.resolve.outputs.tag_commit }}"
+          TARGET_BRANCH="${{ steps.resolve.outputs.target_branch }}"
+
+          git push --force "$REMOTE_URL" "${TAG_COMMIT}:refs/heads/${TARGET_BRANCH}"
+          git push --force "$REMOTE_URL" "refs/tags/${TAG}:refs/tags/${TAG}"

@@ -6,6 +6,8 @@ import (
 	chaintypes "github.com/InjectiveLabs/injective-core/injective-chain/types"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+
+	gethtypes "github.com/ethereum/go-ethereum/common"
 )
 
 // constants
@@ -67,9 +69,15 @@ func (msg MsgCreateNamespace) ValidateBasic() error {
 	}
 
 	// existing contract hook contract
-	if n.ContractHook != "" {
-		if _, err := sdk.AccAddressFromBech32(n.ContractHook); err != nil {
-			return ErrInvalidContractHook
+	if n.WasmHook != "" {
+		if _, err := sdk.AccAddressFromBech32(n.WasmHook); err != nil {
+			return ErrInvalidWasmHook
+		}
+	}
+
+	if n.EvmHook != "" {
+		if ok := gethtypes.IsHexAddress(n.EvmHook); !ok {
+			return ErrInvalidEVMHook
 		}
 	}
 
@@ -101,15 +109,21 @@ func (msg MsgUpdateNamespace) ValidateBasic() error {
 		return err
 	}
 
-	if msg.ContractHook != nil {
-		if _, err := sdk.AccAddressFromBech32(msg.ContractHook.NewValue); err != nil {
-			return ErrInvalidContractHook
+	if msg.WasmHook != nil && msg.WasmHook.NewValue != "" {
+		if _, err := sdk.AccAddressFromBech32(msg.WasmHook.NewValue); err != nil {
+			return ErrInvalidWasmHook
+		}
+	}
+	if msg.EvmHook != nil && msg.EvmHook.NewValue != "" {
+		if ok := gethtypes.IsHexAddress(msg.EvmHook.NewValue); !ok {
+			return ErrInvalidEVMHook
 		}
 	}
 
 	namespace := Namespace{
 		Denom:                     msg.Denom,
-		ContractHook:              "",
+		WasmHook:                  "",
+		EvmHook:                   "",
 		RolePermissions:           msg.RolePermissions,
 		ActorRoles:                nil,
 		RoleManagers:              msg.RoleManagers,
@@ -156,7 +170,7 @@ func (msg MsgUpdateNamespace) GetNamespaceUpdates() NamespaceUpdates {
 		HasPolicyManagersChange:  false,
 	}
 
-	if msg.ContractHook != nil {
+	if msg.WasmHook != nil || msg.EvmHook != nil {
 		actions = append(actions, Action_MODIFY_CONTRACT_HOOK)
 		changes.HasContractHookChange = true
 	}

@@ -80,7 +80,6 @@ func NewDevnetApp(
 ) servertypes.Application {
 	baseAppOptions := []func(*baseapp.BaseApp){
 		baseapp.SetIAVLDisableFastNode(cast.ToBool(appOpts.Get(server.FlagDisableIAVLFastNode))),
-		baseapp.SetChainID(cast.ToString(appOpts.Get(KeyNewChainID))),
 	}
 
 	// first upgrade store if needed

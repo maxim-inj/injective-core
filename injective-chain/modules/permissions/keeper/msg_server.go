@@ -2,11 +2,14 @@ package keeper
 
 import (
 	"context"
+	"strings"
 
 	"cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
+	gethtypes "github.com/ethereum/go-ethereum/common"
 
+	erc20types "github.com/InjectiveLabs/injective-core/injective-chain/modules/erc20/types"
 	"github.com/InjectiveLabs/injective-core/injective-chain/modules/permissions/types"
 )
 
@@ -51,21 +54,34 @@ func (k msgServer) CreateNamespace(c context.Context, msg *types.MsgCreateNamesp
 		return nil, errors.Wrapf(types.ErrDenomNamespaceExists, "namespace for denom %s already exists", denom)
 	}
 
-	// validate denom admin authority permissions
-	admin, err := k.tfKeeper.GetDenomAdmin(ctx, denom)
-	if err != nil {
-		return nil, types.ErrUnauthorized.Wrapf("denom admin for %s doesn't exist", denom)
+	// check sender's ability to set permissions for the denom
+	var (
+		admin sdk.AccAddress
+		err   error
+	)
+	// erc20 denom: retrieve owner from respective smart contract's owner field
+	if strings.HasPrefix(denom, erc20types.DenomPrefix) {
+		admin, err = k.getEVMContractOwner(ctx, denom)
+		if err != nil {
+			return nil, types.ErrUnauthorized.Wrapf("cannot retrieve token owner from contract for denom %s", denom)
+		}
+	} else { // tokenfactory denoms: retrieve admin from denom metadata
+		admin, err = k.tfKeeper.GetDenomAdmin(ctx, denom)
+		if err != nil {
+			return nil, types.ErrUnauthorized.Wrapf("denom admin for %s doesn't exist", denom)
+		}
 	}
-
 	if err := k.checkSenderPermissions(sender, admin); err != nil {
 		return nil, err
 	}
 
-	// existing wasm hook contract that satisfies the expected interface
-	contractHook := namespace.ContractHook
-	if contractHook != "" {
-		wasmContract := sdk.MustAccAddressFromBech32(contractHook)
-		if err := k.validateWasmHook(c, wasmContract); err != nil {
+	if namespace.EvmHook != "" {
+		if err := k.validateEvmHook(c, gethtypes.HexToAddress(namespace.EvmHook)); err != nil {
+			return nil, err
+		}
+	}
+	if namespace.WasmHook != "" {
+		if err := k.validateWasmHook(c, sdk.MustAccAddressFromBech32(namespace.WasmHook)); err != nil {
 			return nil, err
 		}
 	}
@@ -93,22 +109,40 @@ func (k msgServer) UpdateNamespace(c context.Context, msg *types.MsgUpdateNamesp
 
 	namespaceChanges := msg.GetNamespaceUpdates()
 
-	if err := k.Keeper.ValidateNamespaceUpdatePermissions(ctx, sender, denom, namespaceChanges); err != nil {
+	if err := k.ValidateNamespaceUpdatePermissions(ctx, sender, denom, namespaceChanges); err != nil {
 		return nil, err
 	}
 
 	if namespaceChanges.HasContractHookChange {
-		wasmContract := sdk.MustAccAddressFromBech32(msg.ContractHook.NewValue)
-		if err := k.validateWasmHook(c, wasmContract); err != nil {
-			return nil, err
-		}
-
 		namespace, err := k.GetNamespace(ctx, denom, false)
 		if err != nil {
 			return nil, err
 		}
 
-		namespace.ContractHook = wasmContract.String()
+		if msg.WasmHook != nil {
+			if msg.WasmHook.NewValue != "" {
+				wasmContract := sdk.MustAccAddressFromBech32(msg.WasmHook.NewValue)
+				if err := k.validateWasmHook(c, wasmContract); err != nil {
+					return nil, err
+				}
+				namespace.WasmHook = wasmContract.String()
+			} else {
+				namespace.WasmHook = ""
+			}
+		}
+
+		if msg.EvmHook != nil {
+			if msg.EvmHook.NewValue != "" {
+				evmContract := gethtypes.HexToAddress(msg.EvmHook.NewValue)
+				if err := k.validateEvmHook(c, evmContract); err != nil {
+					return nil, err
+				}
+				namespace.EvmHook = evmContract.String()
+			} else {
+				namespace.EvmHook = ""
+			}
+		}
+
 		err = k.setNamespace(ctx, *namespace)
 		if err != nil {
 			return nil, errors.Wrap(err, "can't store updated namespace")

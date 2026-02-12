@@ -36,8 +36,9 @@ type Config struct {
 
 	// Added for EVM
 
-	JSONRPC JSONRPCConfig `mapstructure:"json-rpc"`
-	EVM     EVMConfig     `mapstructure:"evm"`
+	JSONRPC            JSONRPCConfig   `mapstructure:"json-rpc"`
+	EVM                EVMConfig       `mapstructure:"evm"`
+	InjectiveWebsocket WebsocketConfig `mapstructure:"injective-websocket"`
 }
 
 // DefaultConfig returns server's default configuration.
@@ -66,8 +67,9 @@ func DefaultConfig() *Config {
 		Streaming: defaultConfig.Streaming,
 		Mempool:   defaultConfig.Mempool,
 
-		JSONRPC: *DefaultJSONRPCConfig(),
-		EVM:     *DefaultEVMConfig(),
+		JSONRPC:            *DefaultJSONRPCConfig(),
+		EVM:                *DefaultEVMConfig(),
+		InjectiveWebsocket: *DefaultWebsocketConfig(),
 	}
 }
 
@@ -79,6 +81,66 @@ func ParseConfig(v *viper.Viper) (Config, error) {
 	}
 
 	return *conf, nil
+}
+
+// GetConfig returns a fully parsed Config object using Cosmos SDK defaults plus Injective-specific sections.
+func GetConfig(v *viper.Viper) (Config, error) {
+	cfg, err := sdkconfig.GetConfig(v)
+	if err != nil {
+		return Config{}, err
+	}
+
+	injCfg := Config{
+		BaseConfig: cfg.BaseConfig,
+		Telemetry:  cfg.Telemetry,
+		API:        cfg.API,
+		GRPC:       cfg.GRPC,
+		GRPCWeb:    cfg.GRPCWeb,
+		StateSync:  cfg.StateSync,
+		Streaming:  cfg.Streaming,
+		Mempool:    cfg.Mempool,
+	}
+
+	injCfg.EVM = EVMConfig{
+		Tracer:            v.GetString("evm.tracer"),
+		MaxTxGasWanted:    v.GetUint64("evm.max-tx-gas-wanted"),
+		EnableGRPCTracing: v.GetBool("evm.enable-grpc-tracing"),
+	}
+
+	injCfg.JSONRPC = JSONRPCConfig{
+		Enable:              v.GetBool("json-rpc.enable"),
+		API:                 v.GetStringSlice("json-rpc.api"),
+		Address:             v.GetString("json-rpc.address"),
+		WsAddress:           v.GetString("json-rpc.ws-address"),
+		GasCap:              v.GetUint64("json-rpc.gas-cap"),
+		FilterCap:           v.GetInt32("json-rpc.filter-cap"),
+		FeeHistoryCap:       v.GetInt32("json-rpc.feehistory-cap"),
+		TxFeeCap:            v.GetFloat64("json-rpc.txfee-cap"),
+		EVMTimeout:          v.GetDuration("json-rpc.evm-timeout"),
+		LogsCap:             v.GetInt32("json-rpc.logs-cap"),
+		BlockRangeCap:       v.GetInt32("json-rpc.block-range-cap"),
+		HTTPTimeout:         v.GetDuration("json-rpc.http-timeout"),
+		HTTPIdleTimeout:     v.GetDuration("json-rpc.http-idle-timeout"),
+		MaxOpenConnections:  v.GetInt("json-rpc.max-open-connections"),
+		EnableIndexer:       v.GetBool("json-rpc.enable-indexer"),
+		AllowIndexerGap:     v.GetBool("json-rpc.allow-indexer-gap"),
+		Metrics:             v.GetBool("json-rpc.metrics"),
+		MetricsAddress:      v.GetString("json-rpc.metrics-address"),
+		ReturnDataLimit:     v.GetInt64("json-rpc.return-data-limit"),
+		AllowUnprotectedTxs: v.GetBool("json-rpc.allow-unprotected-txs"),
+	}
+
+	injCfg.InjectiveWebsocket = WebsocketConfig{
+		Address:             v.GetString("injective-websocket.address"),
+		MaxOpenConnections:  v.GetInt("injective-websocket.max-open-connections"),
+		ReadTimeout:         v.GetDuration("injective-websocket.read-timeout"),
+		WriteTimeout:        v.GetDuration("injective-websocket.write-timeout"),
+		MaxBodyBytes:        v.GetInt64("injective-websocket.max-body-bytes"),
+		MaxHeaderBytes:      v.GetInt("injective-websocket.max-header-bytes"),
+		MaxRequestBatchSize: v.GetInt("injective-websocket.max-request-batch-size"),
+	}
+
+	return injCfg, nil
 }
 
 // SetMinGasPrices sets the validator's minimum gas prices.
@@ -134,8 +196,9 @@ func TestingAppConfig(denom string) (string, interface{}) {
 		Streaming: srvCfg.Streaming,
 		Mempool:   srvCfg.Mempool,
 
-		EVM:     *DefaultEVMConfig(),
-		JSONRPC: *DefaultJSONRPCConfig(),
+		EVM:                *DefaultEVMConfig(),
+		JSONRPC:            *DefaultJSONRPCConfig(),
+		InjectiveWebsocket: *DefaultWebsocketConfig(),
 	}
 
 	customAppTemplate := sdkconfig.DefaultConfigTemplate + DefaultConfigTemplate

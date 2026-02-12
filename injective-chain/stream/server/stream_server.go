@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"cosmossdk.io/log"
+	"github.com/InjectiveLabs/injective-core/injective-chain/modules/exchange/keeper/marketfinder"
 	"github.com/cometbft/cometbft/libs/pubsub"
 	servertypes "github.com/cosmos/cosmos-sdk/server/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -111,7 +112,7 @@ func (s *StreamServer) Stop() {
 }
 
 func (s *StreamServer) Stream(req *types.StreamRequest, server types.Stream_StreamServer) error {
-	marketFinder := exchangekeeper.NewCachedMarketFinder(s.exchangeKeeper)
+	marketFinder := marketfinder.New(s.exchangeKeeper.BaseKeeper)
 
 	if err := req.Validate(); err != nil {
 		return status.Error(codes.InvalidArgument, err.Error())
@@ -137,7 +138,10 @@ func (s *StreamServer) Stream(req *types.StreamRequest, server types.Stream_Stre
 }
 
 func (s *StreamServer) listenStream(
-	v2Req v2.StreamRequest, server types.Stream_StreamServer, ch <-chan pubsub.Message, marketFinder *exchangekeeper.CachedMarketFinder,
+	v2Req v2.StreamRequest,
+	server types.Stream_StreamServer,
+	ch <-chan pubsub.Message,
+	marketFinder *marketfinder.CachedMarketFinder,
 ) error {
 	var height uint64
 	for {
@@ -155,8 +159,11 @@ func (s *StreamServer) listenStream(
 }
 
 func (s *StreamServer) processMessage(
-	message pubsub.Message, v2Req v2.StreamRequest, server types.Stream_StreamServer,
-	height uint64, marketFinder *exchangekeeper.CachedMarketFinder,
+	message pubsub.Message,
+	v2Req v2.StreamRequest,
+	server types.Stream_StreamServer,
+	height uint64,
+	marketFinder *marketfinder.CachedMarketFinder,
 ) (uint64, error) {
 	inResp, newHeight, err := s.validateAndExtractResponse(message, height)
 	if err != nil {
@@ -194,9 +201,11 @@ func (*StreamServer) validateAndExtractResponse(message pubsub.Message, height u
 }
 
 func (s *StreamServer) processAndSendResponse(
-	inResp v2.StreamResponseMap, v2Req *v2.StreamRequest,
-	server types.Stream_StreamServer, height uint64,
-	marketFinder *exchangekeeper.CachedMarketFinder,
+	inResp v2.StreamResponseMap,
+	v2Req *v2.StreamRequest,
+	server types.Stream_StreamServer,
+	height uint64,
+	marketFinder *marketfinder.CachedMarketFinder,
 ) (uint64, error) {
 	outResp, err := s.streamResponseFromMap(inResp, v2Req)
 	if err != nil {

@@ -18,8 +18,6 @@ const OutgoingTxBatchSize = 100
 
 // BuildOutgoingTXBatch starts the following process chain:
 //   - find bridged denominator for given voucher type
-//   - determine if a an unexecuted batch is already waiting for this token type, if so confirm the new batch would
-//     have a higher total fees. If not exit without creating a batch
 //   - select available transactions from the outgoing transaction pool sorted by fee desc
 //   - persist an outgoing batch object with an incrementing ID = nonce
 //   - emit an event
@@ -30,31 +28,6 @@ func (k *Keeper) BuildOutgoingTXBatch(ctx sdk.Context, contractAddress common.Ad
 	if maxElements == 0 {
 		metrics.ReportFuncError(k.svcTags)
 		return nil, errors.Wrap(types.ErrInvalid, "max elements value")
-	}
-
-	lastBatch := k.GetLastOutgoingBatchByTokenType(ctx, contractAddress)
-
-	// lastBatch may be nil if there are no existing batches, we only need
-	// to perform this check if a previous batch exists
-	if lastBatch != nil {
-		// this traverses the current tx pool for this token type and determines what
-		// fees a hypothetical batch would have if created
-		currentFees, err := k.GetBatchFeesByTokenType(ctx, contractAddress)
-		if err != nil {
-			metrics.ReportFuncError(k.svcTags)
-			return nil, err
-		}
-
-		if currentFees == nil {
-			metrics.ReportFuncError(k.svcTags)
-			return nil, errors.Wrap(types.ErrInvalid, "error getting fees from tx pool")
-		}
-
-		lastFees := lastBatch.GetFees()
-		if lastFees.GT(currentFees.TotalFees) {
-			metrics.ReportFuncError(k.svcTags)
-			return nil, errors.Wrap(types.ErrInvalid, "new batch would not be more profitable")
-		}
 	}
 
 	selectedTx, err := k.pickUnbatchedTX(ctx, contractAddress, maxElements)

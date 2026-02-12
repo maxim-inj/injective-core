@@ -79,7 +79,14 @@ func (k *Keeper) GetNextEndingTimeStamp(ctx sdk.Context) int64 {
 	auctionPeriod := k.GetParams(ctx).AuctionPeriod
 	currentTimeStamp := k.GetEndingTimeStamp(ctx)
 	nextTimeStamp := currentTimeStamp + auctionPeriod
-	return nextTimeStamp
+
+	// If there was a chain halt, nextTimeStamp might be in the past or too close to current time.
+	// Ensure the next auction ends at least a half auction period from now.
+	// Very unlikely to happen on mainnet, but good to have this safeguard.
+	currentBlockTime := ctx.BlockTime().Unix()
+	minNextTimeStamp := currentBlockTime + auctionPeriod/2
+
+	return max(nextTimeStamp, minNextTimeStamp)
 }
 
 func (k *Keeper) AdvanceNextEndingTimeStamp(ctx sdk.Context) (nextTimestamp int64) {

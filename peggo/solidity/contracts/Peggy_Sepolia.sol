@@ -114,7 +114,7 @@ contract Peggy is
            state_lastValsetNonce,
            state_lastEventNonce,
            0,
-           address(0),
+           address(0x5512c04B6FF813f3571bDF64A1d74c98B5257332), // use the address of old INJ token checkpoints will match during submitBatch and updateValset
            _validators,
            _powers
        );

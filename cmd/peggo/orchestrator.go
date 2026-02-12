@@ -173,6 +173,12 @@ func orchestratorCmd(cmd *cli.Cmd) {
 		orShutdown(err)
 
 		go func() {
+			if err := peggo.RunHealthCheckServer(uint64(*cfg.healthCheckPort)); err != nil {
+				log.Errorln("health check server error: ", err)
+			}
+		}()
+
+		go func() {
 			if err := peggo.Run(ctx, cosmosNetwork, ethNetwork); err != nil {
 				log.Errorln(err)
 				os.Exit(1)

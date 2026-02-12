@@ -295,6 +295,8 @@ func (ec *ExchangeContract) run(evm *vm.EVM, contract *vm.Contract, readonly boo
 AUTHZ TRANSACTIONS
 *******************************************************************************/
 
+// approve grants authorizations to a grantee. SpendLimit amounts in the
+// Authorization struct use CHAIN FORMAT (token's native decimals).
 func (ec *ExchangeContract) approve(
 	evm *vm.EVM,
 	caller sdk.AccAddress,
@@ -349,6 +351,7 @@ func (ec *ExchangeContract) approve(
 	return method.Outputs.Pack(true)
 }
 
+// revoke removes authorizations from a grantee. No numeric amount parameters.
 func (ec *ExchangeContract) revoke(
 	evm *vm.EVM,
 	caller sdk.AccAddress,
@@ -395,6 +398,8 @@ func (ec *ExchangeContract) revoke(
 AUTHZ QUERIES
 *******************************************************************************/
 
+// queryAllowance checks if an authorization exists. Returns boolean, no
+// numeric amounts.
 func (ec *ExchangeContract) queryAllowance(
 	evm *vm.EVM,
 	_ common.Address,
@@ -441,6 +446,10 @@ func (ec *ExchangeContract) queryAllowance(
 ACCOUNT TRANSACTIONS
 *******************************************************************************/
 
+// deposit transfers tokens from bank module to subaccount.
+//
+// INPUT: amount (uint256) - CHAIN FORMAT (token's native decimals, e.g., 6 for USDT, 18 for INJ)
+// OUTPUT: success (bool)
 func (ec *ExchangeContract) deposit(
 	evm *vm.EVM,
 	caller sdk.AccAddress,
@@ -492,6 +501,10 @@ func (ec *ExchangeContract) deposit(
 	return method.Outputs.Pack(true)
 }
 
+// withdraw transfers tokens from subaccount to bank module.
+//
+// INPUT: amount (uint256) - CHAIN FORMAT (token's native decimals, e.g., 6 for USDT, 18 for INJ)
+// OUTPUT: success (bool)
 func (ec *ExchangeContract) withdraw(
 	evm *vm.EVM,
 	caller sdk.AccAddress,
@@ -543,6 +556,10 @@ func (ec *ExchangeContract) withdraw(
 	return method.Outputs.Pack(true)
 }
 
+// subaccountTransfer transfers tokens between subaccounts of the same trader.
+//
+// INPUT: amount (uint256) - CHAIN FORMAT (token's native decimals, e.g., 6 for USDT, 18 for INJ)
+// OUTPUT: success (bool)
 func (ec *ExchangeContract) subaccountTransfer(
 	evm *vm.EVM,
 	caller sdk.AccAddress,
@@ -585,10 +602,6 @@ func (ec *ExchangeContract) subaccountTransfer(
 		),
 	}
 
-	if err := msg.ValidateBasic(); err != nil {
-		return nil, err
-	}
-
 	resBytes, err := ec.validateAndDispatchMsg(evm, caller, msg, sdk.Coins{msg.Amount})
 	if err != nil {
 		return nil, err
@@ -603,6 +616,10 @@ func (ec *ExchangeContract) subaccountTransfer(
 	return method.Outputs.Pack(true)
 }
 
+// externalTransfer transfers tokens between subaccounts of different traders.
+//
+// INPUT: amount (uint256) - CHAIN FORMAT (token's native decimals, e.g., 6 for USDT, 18 for INJ)
+// OUTPUT: success (bool)
 func (ec *ExchangeContract) externalTransfer(
 	evm *vm.EVM,
 	caller sdk.AccAddress,
@@ -659,6 +676,10 @@ func (ec *ExchangeContract) externalTransfer(
 	return method.Outputs.Pack(true)
 }
 
+// increasePositionMargin increases the margin of an existing position.
+//
+// INPUT: amount (uint256) - API FORMAT (human-readable value scaled by 18 decimals)
+// OUTPUT: success (bool)
 func (ec *ExchangeContract) increasePositionMargin(
 	evm *vm.EVM,
 	caller sdk.AccAddress,
@@ -689,6 +710,10 @@ func (ec *ExchangeContract) increasePositionMargin(
 	return method.Outputs.Pack(true)
 }
 
+// decreasePositionMargin decreases the margin of an existing position.
+//
+// INPUT: amount (uint256) - API FORMAT (human-readable value scaled by 18 decimals)
+// OUTPUT: success (bool)
 func (ec *ExchangeContract) decreasePositionMargin(
 	evm *vm.EVM,
 	caller sdk.AccAddress,
@@ -719,6 +744,13 @@ func (ec *ExchangeContract) decreasePositionMargin(
 	return method.Outputs.Pack(true)
 }
 
+// batchUpdateOrders atomically cancels and creates multiple orders.
+//
+// INPUT: spotOrdersToCreate[].{price, quantity, triggerPrice} - API FORMAT (18 decimals)
+//
+//	derivativeOrdersToCreate[].{price, quantity, margin, triggerPrice} - API FORMAT (18 decimals)
+//
+// OUTPUT: BatchUpdateOrdersResponse with order hashes and cids
 func (ec *ExchangeContract) batchUpdateOrders(
 	evm *vm.EVM,
 	caller sdk.AccAddress,
@@ -753,6 +785,10 @@ func (ec *ExchangeContract) batchUpdateOrders(
 ACCOUNT QUERIES
 *******************************************************************************/
 
+// querySubaccountDeposit retrieves deposit information for a specific denom.
+//
+// INPUT: subaccountID, denom
+// OUTPUT: availableBalance, totalBalance (both uint256) - CHAIN FORMAT (token's native decimals, e.g., 6 for USDT, 18 for INJ)
 func (ec *ExchangeContract) querySubaccountDeposit(
 	evm *vm.EVM,
 	_ sdk.AccAddress,
@@ -797,7 +833,10 @@ func (ec *ExchangeContract) querySubaccountDeposit(
 	return method.Outputs.Pack(availableBalance, totalBalance)
 }
 
-// ATTENTION: unlike other methods, returned amounts are in human-readable format
+// querySubaccountDeposits retrieves all deposit information for a subaccount.
+//
+// INPUT: subaccountID, trader, subaccountNonce
+// OUTPUT: SubaccountDepositData[].{availableBalance, totalBalance} - CHAIN FORMAT (token's native decimals)
 func (ec *ExchangeContract) querySubaccountDeposits(
 	evm *vm.EVM,
 	_ sdk.AccAddress,
@@ -845,6 +884,10 @@ func (ec *ExchangeContract) querySubaccountDeposits(
 	return method.Outputs.Pack(solDeposits)
 }
 
+// querySubaccountPositions retrieves all derivative positions for a subaccount.
+//
+// INPUT: subaccountID
+// OUTPUT: DerivativePosition[].{quantity, entryPrice, margin, cumulativeFundingEntry} - API FORMAT (18 decimals)
 func (ec *ExchangeContract) querySubaccountPositions(
 	evm *vm.EVM,
 	_ sdk.AccAddress,
@@ -873,7 +916,7 @@ func (ec *ExchangeContract) querySubaccountPositions(
 		return nil, err
 	}
 
-	solResults, err := ec.convertSubaccountPositionsResponse(resp, evm)
+	solResults, err := ec.convertSubaccountPositionsResponse(resp)
 	if err != nil {
 		return nil, err
 	}
@@ -885,6 +928,10 @@ func (ec *ExchangeContract) querySubaccountPositions(
 DERIVATIVE TRANSACTIONS
 *******************************************************************************/
 
+// createDerivativeLimitOrder creates a single derivative limit order.
+//
+// INPUT: DerivativeOrder.{price, quantity, margin, triggerPrice} - all API FORMAT (18 decimals)
+// OUTPUT: CreateDerivativeLimitOrderResponse.{orderHash, cid}
 func (ec *ExchangeContract) createDerivativeLimitOrder(
 	evm *vm.EVM,
 	caller sdk.AccAddress,
@@ -896,7 +943,7 @@ func (ec *ExchangeContract) createDerivativeLimitOrder(
 		return nil, errors.New("the method is not readonly")
 	}
 
-	sender, order, hold, _, err := ec.castCreateDerivativeOrderParams(method.Inputs, args, evm)
+	sender, order, hold, err := ec.castCreateDerivativeOrderParams(method.Inputs, args, evm)
 	if err != nil {
 		return nil, err
 	}
@@ -920,6 +967,10 @@ func (ec *ExchangeContract) createDerivativeLimitOrder(
 	return method.Outputs.Pack(resp)
 }
 
+// batchCreateDerivativeLimitOrder creates multiple derivative limit orders.
+//
+// INPUT: DerivativeOrder[].{price, quantity, margin, triggerPrice} - all API FORMAT (18 decimals)
+// OUTPUT: BatchCreateDerivativeLimitOrdersResponse.{orderHashes[], createdOrdersCids[], failedOrdersCids[]}
 func (ec *ExchangeContract) batchCreateDerivativeLimitOrder(
 	evm *vm.EVM,
 	caller sdk.AccAddress,
@@ -955,6 +1006,10 @@ func (ec *ExchangeContract) batchCreateDerivativeLimitOrder(
 	return method.Outputs.Pack(resp)
 }
 
+// createDerivativeMarketOrder creates a derivative market order (executes immediately).
+//
+// INPUT: DerivativeOrder.{price, quantity, margin, triggerPrice} - all API FORMAT (18 decimals)
+// OUTPUT: CreateDerivativeMarketOrderResponse.{quantity, price, fee, payout, deltaExecutionQuantity, deltaExecutionMargin, deltaExecutionPrice} - all API FORMAT (18 decimals)
 func (ec *ExchangeContract) createDerivativeMarketOrder(
 	evm *vm.EVM,
 	caller sdk.AccAddress,
@@ -966,7 +1021,7 @@ func (ec *ExchangeContract) createDerivativeMarketOrder(
 		return nil, errors.New("the method is not readonly")
 	}
 
-	sender, order, hold, market, err := ec.castCreateDerivativeOrderParams(method.Inputs, args, evm)
+	sender, order, hold, err := ec.castCreateDerivativeOrderParams(method.Inputs, args, evm)
 	if err != nil {
 		return nil, err
 	}
@@ -987,11 +1042,15 @@ func (ec *ExchangeContract) createDerivativeMarketOrder(
 		return nil, err
 	}
 
-	solResp := convertCreateDerivativeMarketOrderResponse(resp, market)
+	solResp := convertCreateDerivativeMarketOrderResponse(resp)
 
 	return method.Outputs.Pack(solResp)
 }
 
+// cancelDerivativeOrder cancels a single derivative order.
+//
+// INPUT: sender, marketID, subaccountID, orderHash, orderMask, cid (no numeric amounts)
+// OUTPUT: success (bool)
 func (ec *ExchangeContract) cancelDerivativeOrder(
 	evm *vm.EVM,
 	caller sdk.AccAddress,
@@ -1051,6 +1110,10 @@ func (ec *ExchangeContract) cancelDerivativeOrder(
 	return method.Outputs.Pack(true)
 }
 
+// batchCancelDerivativeOrders cancels multiple derivative orders.
+//
+// INPUT: OrderData[] with marketID, subaccountID, orderHash, orderMask, cid (no numeric amounts)
+// OUTPUT: success[] (bool[])
 func (ec *ExchangeContract) batchCancelDerivativeOrders(
 	evm *vm.EVM,
 	caller sdk.AccAddress,
@@ -1090,6 +1153,10 @@ func (ec *ExchangeContract) batchCancelDerivativeOrders(
 DERIVATIVE QUERIES
 *******************************************************************************/
 
+// queryDerivativeOrdersByHashes retrieves derivative orders by their hashes.
+//
+// INPUT: DerivativeOrdersRequest.{marketID, subaccountID, orderHashes[]}
+// OUTPUT: TrimmedDerivativeLimitOrder[].{price, quantity, margin, fillable} - all API FORMAT (18 decimals)
 func (ec *ExchangeContract) queryDerivativeOrdersByHashes(
 	evm *vm.EVM,
 	_ sdk.AccAddress,
@@ -1098,7 +1165,7 @@ func (ec *ExchangeContract) queryDerivativeOrdersByHashes(
 	_ bool,
 ) ([]byte, error) {
 
-	req, market, err := ec.castQueryDerivativeOrdersRequest(method.Inputs, args, evm)
+	req, err := ec.castQueryDerivativeOrdersRequest(method.Inputs, args)
 	if err != nil {
 		return nil, err
 	}
@@ -1115,7 +1182,7 @@ func (ec *ExchangeContract) queryDerivativeOrdersByHashes(
 		return nil, err
 	}
 
-	solOrders := convertTrimmedDerivativeOrders(resp.Orders, market)
+	solOrders := convertTrimmedDerivativeOrders(resp.Orders)
 
 	return method.Outputs.Pack(solOrders)
 }
@@ -1124,6 +1191,10 @@ func (ec *ExchangeContract) queryDerivativeOrdersByHashes(
 SPOT TRANSACTIONS
 *******************************************************************************/
 
+// createSpotLimitOrder creates a single spot limit order.
+//
+// INPUT: SpotOrder.{price, quantity, triggerPrice} - all API FORMAT (18 decimals)
+// OUTPUT: CreateSpotLimitOrderResponse.{orderHash, cid}
 func (ec *ExchangeContract) createSpotLimitOrder(
 	evm *vm.EVM,
 	caller sdk.AccAddress,
@@ -1135,7 +1206,7 @@ func (ec *ExchangeContract) createSpotLimitOrder(
 		return nil, errors.New("the method is not readonly")
 	}
 
-	sender, order, hold, _, err := ec.castCreateSpotOrderParams(method.Inputs, args, evm)
+	sender, order, hold, err := ec.castCreateSpotOrderParams(method.Inputs, args, evm)
 	if err != nil {
 		return nil, err
 	}
@@ -1159,6 +1230,10 @@ func (ec *ExchangeContract) createSpotLimitOrder(
 	return method.Outputs.Pack(resp)
 }
 
+// batchCreateSpotLimitOrders creates multiple spot limit orders.
+//
+// INPUT: SpotOrder[].{price, quantity, triggerPrice} - all API FORMAT (18 decimals)
+// OUTPUT: BatchCreateSpotLimitOrdersResponse.{orderHashes[], createdOrdersCids[], failedOrdersCids[]}
 func (ec *ExchangeContract) batchCreateSpotLimitOrders(
 	evm *vm.EVM,
 	caller sdk.AccAddress,
@@ -1194,6 +1269,10 @@ func (ec *ExchangeContract) batchCreateSpotLimitOrders(
 	return method.Outputs.Pack(resp)
 }
 
+// createSpotMarketOrder creates a spot market order (executes immediately).
+//
+// INPUT: SpotOrder.{price, quantity, triggerPrice} - all API FORMAT (18 decimals)
+// OUTPUT: CreateSpotMarketOrderResponse.{quantity, price, fee} - all API FORMAT (18 decimals)
 func (ec *ExchangeContract) createSpotMarketOrder(
 	evm *vm.EVM,
 	caller sdk.AccAddress,
@@ -1205,7 +1284,7 @@ func (ec *ExchangeContract) createSpotMarketOrder(
 		return nil, errors.New("the method is not readonly")
 	}
 
-	sender, order, hold, market, err := ec.castCreateSpotOrderParams(method.Inputs, args, evm)
+	sender, order, hold, err := ec.castCreateSpotOrderParams(method.Inputs, args, evm)
 	if err != nil {
 		return nil, err
 	}
@@ -1226,11 +1305,15 @@ func (ec *ExchangeContract) createSpotMarketOrder(
 		return nil, err
 	}
 
-	solResp := ec.convertCreateSpotMarketOrderResponse(resp, market)
+	solResp := ec.convertCreateSpotMarketOrderResponse(resp)
 
 	return method.Outputs.Pack(solResp)
 }
 
+// cancelSpotOrder cancels a single spot order.
+//
+// INPUT: sender, marketID, subaccountID, orderHash, cid (no numeric amounts)
+// OUTPUT: success (bool)
 func (ec *ExchangeContract) cancelSpotOrder(
 	evm *vm.EVM,
 	caller sdk.AccAddress,
@@ -1285,6 +1368,10 @@ func (ec *ExchangeContract) cancelSpotOrder(
 	return method.Outputs.Pack(true)
 }
 
+// batchCancelSpotOrders cancels multiple spot orders.
+//
+// INPUT: OrderData[] with marketID, subaccountID, orderHash, cid (no numeric amounts)
+// OUTPUT: success[] (bool[])
 func (ec *ExchangeContract) batchCancelSpotOrders(
 	evm *vm.EVM,
 	caller sdk.AccAddress,
@@ -1324,6 +1411,10 @@ func (ec *ExchangeContract) batchCancelSpotOrders(
 SPOT QUERIES
 *******************************************************************************/
 
+// querySpotOrdersByHashes retrieves spot orders by their hashes.
+//
+// INPUT: SpotOrdersRequest.{marketID, subaccountID, orderHashes[]}
+// OUTPUT: TrimmedSpotLimitOrder[].{price, quantity, fillable} - all API FORMAT (18 decimals)
 func (ec *ExchangeContract) querySpotOrdersByHashes(
 	evm *vm.EVM,
 	_ sdk.AccAddress,
@@ -1332,7 +1423,7 @@ func (ec *ExchangeContract) querySpotOrdersByHashes(
 	_ bool,
 ) ([]byte, error) {
 
-	req, market, err := ec.castQuerySpotOrdersRequest(method.Inputs, args, evm)
+	req, err := ec.castQuerySpotOrdersRequest(method.Inputs, args, evm)
 	if err != nil {
 		return nil, err
 	}
@@ -1349,7 +1440,7 @@ func (ec *ExchangeContract) querySpotOrdersByHashes(
 		return nil, err
 	}
 
-	solOrders := ec.convertTrimmedSpotOrders(resp.Orders, market)
+	solOrders := ec.convertTrimmedSpotOrders(resp.Orders)
 
 	return method.Outputs.Pack(solOrders)
 }

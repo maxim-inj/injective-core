@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"cosmossdk.io/errors"
+	"github.com/InjectiveLabs/metrics"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
@@ -15,7 +16,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 
 	"github.com/InjectiveLabs/injective-core/injective-chain/modules/peggy/types"
-	"github.com/InjectiveLabs/metrics"
 )
 
 type msgServer struct {
@@ -43,19 +43,22 @@ func (k msgServer) SetOrchestratorAddresses(c context.Context, msg *types.MsgSet
 	defer doneFn()
 
 	ctx := sdk.UnwrapSDKContext(c)
-	validatorAccountAddr, _ := sdk.AccAddressFromBech32(msg.Sender)
+	validatorAccountAddr := sdk.MustAccAddressFromBech32(msg.Sender)
 	validatorAddr := sdk.ValAddress(validatorAccountAddr.Bytes())
 
 	// get orchestrator address if available. otherwise default to validator address.
 	var orchestratorAddr sdk.AccAddress
 	if msg.Orchestrator != "" {
-		orchestratorAddr, _ = sdk.AccAddressFromBech32(msg.Orchestrator)
+		orchestratorAddr = sdk.MustAccAddressFromBech32(msg.Orchestrator)
 	} else {
 		orchestratorAddr = validatorAccountAddr
 	}
 
 	_, foundExistingOrchestratorKey := k.GetOrchestratorValidator(ctx, orchestratorAddr)
 	_, foundExistingEthAddress := k.GetEthAddressByValidator(ctx, validatorAddr)
+
+	ethAddress := common.HexToAddress(msg.EthAddress)
+	_, foundExistingEthAddressMapping := k.GetValidatorByEthAddress(ctx, ethAddress)
 
 	// ensure that the validator exists
 	if val, err := k.Keeper.StakingKeeper.Validator(ctx, validatorAddr); err != nil || val == nil {
@@ -67,12 +70,15 @@ func (k msgServer) SetOrchestratorAddresses(c context.Context, msg *types.MsgSet
 	} else if foundExistingOrchestratorKey || foundExistingEthAddress {
 		metrics.ReportFuncError(k.svcTags)
 		return nil, errors.Wrap(types.ErrResetDelegateKeys, validatorAddr.String())
+	} else if foundExistingEthAddressMapping {
+		metrics.ReportFuncError(k.svcTags)
+		return nil, errors.Wrap(types.ErrDuplicateEthAddress, msg.EthAddress)
 	}
 
 	// set the orchestrator address
 	k.SetOrchestratorValidator(ctx, validatorAddr, orchestratorAddr)
 	// set the ethereum address
-	k.SetEthAddressForValidator(ctx, validatorAddr, common.HexToAddress(msg.EthAddress))
+	k.SetEthAddressForValidator(ctx, validatorAddr, ethAddress)
 
 	// nolint:errcheck //ignored on purpose
 	ctx.EventManager().EmitTypedEvent(&types.EventSetOrchestratorAddresses{
@@ -105,11 +111,21 @@ func (k msgServer) ValsetConfirm(c context.Context, msg *types.MsgValsetConfirm)
 		metrics.ReportFuncError(k.svcTags)
 		return nil, errors.Wrap(types.ErrInvalid, "signature decoding")
 	}
-	orchaddr, _ := sdk.AccAddressFromBech32(msg.Orchestrator)
+	orchaddr := sdk.MustAccAddressFromBech32(msg.Orchestrator)
 	validator, found := k.GetOrchestratorValidator(ctx, orchaddr)
 	if !found {
 		metrics.ReportFuncError(k.svcTags)
 		return nil, errors.Wrap(types.ErrUnknown, "validator")
+	}
+
+	v, err := k.StakingKeeper.Validator(ctx, validator)
+	if err != nil {
+		metrics.ReportFuncError(k.svcTags)
+		return nil, errors.Wrap(err, "validator can't be retrieved")
+	}
+
+	if v.IsUnbonded() {
+		return nil, errors.Wrap(types.ErrUnbondedValidator, "validator must be bonded to accept confirm")
 	}
 
 	ethAddress, found := k.GetEthAddressByValidator(ctx, validator)
@@ -253,7 +269,7 @@ func (k msgServer) ConfirmBatch(c context.Context, msg *types.MsgConfirmBatch) (
 		return nil, errors.Wrap(types.ErrInvalid, "signature decoding")
 	}
 
-	orchaddr, _ := sdk.AccAddressFromBech32(msg.Orchestrator)
+	orchaddr := sdk.MustAccAddressFromBech32(msg.Orchestrator)
 	validator, found := k.GetOrchestratorValidator(ctx, orchaddr)
 	if !found {
 		metrics.ReportFuncError(k.svcTags)
@@ -274,6 +290,20 @@ func (k msgServer) ConfirmBatch(c context.Context, msg *types.MsgConfirmBatch) (
 			msg.EthSigner,
 			ethAddress.Hex(),
 		)
+	}
+
+	v, err := k.StakingKeeper.Validator(ctx, validator)
+	if err != nil || v == nil {
+		metrics.ReportFuncError(k.svcTags)
+		if err == nil {
+			err = types.ErrUnknown
+		}
+
+		return nil, errors.Wrap(err, "validator can't be retrieved")
+	}
+
+	if v.IsUnbonded() {
+		return nil, errors.Wrap(types.ErrUnbondedValidator, "validator must be bonded to send batch confirm")
 	}
 
 	if err := types.ValidateEthereumSignature(checkpoint, sigBytes, ethAddress); err != nil {
@@ -312,7 +342,7 @@ func (k msgServer) DepositClaim(c context.Context, msg *types.MsgDepositClaim) (
 
 	ctx := sdk.UnwrapSDKContext(c)
 
-	orchestrator, _ := sdk.AccAddressFromBech32(msg.Orchestrator)
+	orchestrator := sdk.MustAccAddressFromBech32(msg.Orchestrator)
 	validator, found := k.GetOrchestratorValidator(ctx, orchestrator)
 	if !found {
 		metrics.ReportFuncError(k.svcTags)
@@ -365,7 +395,7 @@ func (k msgServer) WithdrawClaim(c context.Context, msg *types.MsgWithdrawClaim)
 
 	ctx := sdk.UnwrapSDKContext(c)
 
-	orchestrator, _ := sdk.AccAddressFromBech32(msg.Orchestrator)
+	orchestrator := sdk.MustAccAddressFromBech32(msg.Orchestrator)
 	validator, found := k.GetOrchestratorValidator(ctx, orchestrator)
 	if !found {
 		metrics.ReportFuncError(k.svcTags)
@@ -406,7 +436,7 @@ func (k msgServer) ERC20DeployedClaim(c context.Context, msg *types.MsgERC20Depl
 
 	ctx := sdk.UnwrapSDKContext(c)
 
-	orch, _ := sdk.AccAddressFromBech32(msg.Orchestrator)
+	orch := sdk.MustAccAddressFromBech32(msg.Orchestrator)
 	validator, found := k.GetOrchestratorValidator(ctx, orch)
 	if !found {
 		metrics.ReportFuncError(k.svcTags)
@@ -447,7 +477,7 @@ func (k msgServer) ValsetUpdateClaim(c context.Context, msg *types.MsgValsetUpda
 
 	ctx := sdk.UnwrapSDKContext(c)
 
-	orchaddr, _ := sdk.AccAddressFromBech32(msg.Orchestrator)
+	orchaddr := sdk.MustAccAddressFromBech32(msg.Orchestrator)
 	validator, found := k.GetOrchestratorValidator(ctx, orchaddr)
 	if !found {
 		metrics.ReportFuncError(k.svcTags)
@@ -636,6 +666,14 @@ func (k msgServer) CreateRateLimit(
 	}
 
 	k.SetRateLimit(ctx, rateLimit)
+
+	// Initialize MintAmountERC20 with current supply if it exists
+	tokenAddr := common.HexToAddress(msg.TokenAddress)
+	isCosmosOriginated, denom := k.ERC20ToDenomLookup(ctx, tokenAddr)
+	if !isCosmosOriginated {
+		currentSupply := k.bankKeeper.GetSupply(ctx, denom)
+		k.SetMintAmountERC20(ctx, tokenAddr, currentSupply.Amount)
+	}
 
 	return &types.MsgCreateRateLimitResponse{}, nil
 }

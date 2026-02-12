@@ -18,4 +18,5 @@ var (
 	ErrInvalidTFDenom           = errors.Register(ModuleName, 9, "invalid token factory denom")
 	ErrExistingERC20DenomSupply = errors.Register(ModuleName, 10, "respective erc20:... denom has existing supply")
 	ErrInvalidQueryRequest      = errors.Register(ModuleName, 11, "invalid query request")
+	ErrChargingDenomCreationFee = errors.Register(ModuleName, 12, "can't charge denom creation fee")
 )

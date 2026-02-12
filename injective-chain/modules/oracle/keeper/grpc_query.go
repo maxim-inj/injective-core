@@ -294,3 +294,18 @@ func (k *Keeper) PythPrice(c context.Context, req *types.QueryPythPriceRequest) 
 
 	return &types.QueryPythPriceResponse{PriceState: priceState}, nil
 }
+
+func (k *Keeper) ChainlinkDataStreamsPriceStates(
+	c context.Context, _ *types.QueryChainlinkDataStreamsPriceStatesRequest,
+) (*types.QueryChainlinkDataStreamsPriceStatesResponse, error) {
+	c, doneFn := metrics.ReportFuncCallAndTimingCtx(c, k.svcTags)
+	defer doneFn()
+
+	ctx := sdk.UnwrapSDKContext(c)
+
+	res := &types.QueryChainlinkDataStreamsPriceStatesResponse{
+		PriceStates: k.GetAllChainlinkDataStreamsPriceStates(ctx),
+	}
+
+	return res, nil
+}

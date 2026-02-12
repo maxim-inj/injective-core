@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "success_response.schema.json",
+  "title": "Success Response",
+  "description": "JSON-RPC 2.0 success response for subscribe/unsubscribe operations",
+  "type": "object",
+  "required": ["jsonrpc", "id", "result"],
+  "properties": {
+    "jsonrpc": {
+      "type": "string",
+      "const": "2.0",
+      "description": "JSON-RPC protocol version"
+    },
+    "id": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Request identifier matching the original request"
+    },
+    "result": {
+      "type": "string",
+      "const": "success",
+      "description": "Success indicator"
+    }
+  },
+  "additionalProperties": false
+}
+

@@ -28,6 +28,24 @@ var (
 	errEmptyMethodsArgs    = "methods argument cannot be empty"
 )
 
+// fromAPIFormat converts a BigInt value from API format (18 decimal places) to a human-readable decimal.
+// API format represents values as BigInt with 18 decimal scaling, e.g., 500.123 is represented as 500123000000000000000.
+// This function converts it back to the internal human-readable representation (math.LegacyDec).
+func fromAPIFormat(apiValue *big.Int) math.LegacyDec {
+	return math.LegacyNewDecFromBigIntWithPrec(apiValue, 18)
+}
+
+// ToAPIFormat converts a human-readable decimal to API format (BigInt with 18 decimal places).
+// The internal human-readable representation (math.LegacyDec) is converted to BigInt with 18 decimal scaling.
+// For example, 500.123 becomes 500123000000000000000.
+func ToAPIFormat(humanReadable math.LegacyDec) *big.Int {
+	// math.LegacyDec internally stores values as a big.Int with a fixed precision of 18 decimal places.
+	// This means a value like 500.123 is already stored internally as 500123000000000000000.
+	// Calling BigInt() simply returns this internal representation directly, which is exactly
+	// the API format we need (BigInt with 18 decimal places).
+	return humanReadable.BigInt()
+}
+
 /*
 ******************************************************************************
 Authz
@@ -150,7 +168,6 @@ func (ec *ExchangeContract) castCreateDerivativeOrderParams(
 	sdk.Address,
 	*exchangetypesv2.DerivativeOrder,
 	sdk.Coins,
-	*exchangetypesv2.DerivativeMarket,
 	error,
 ) {
 	type SolCreateDerivativeOrderParams struct {
@@ -160,17 +177,17 @@ func (ec *ExchangeContract) castCreateDerivativeOrderParams(
 
 	var solArgs SolCreateDerivativeOrderParams
 	if err := methodInputs.Copy(&solArgs, values); err != nil {
-		return sdk.AccAddress{}, nil, nil, nil, err
+		return sdk.AccAddress{}, nil, nil, err
 	}
 
 	sender := sdk.AccAddress(solArgs.Sender.Bytes())
 
-	order, hold, market, err := ec.castDerivativeOrder(solArgs.Order, evm)
+	order, hold, err := ec.castDerivativeOrder(solArgs.Order, evm)
 	if err != nil {
-		return sdk.AccAddress{}, nil, nil, nil, err
+		return sdk.AccAddress{}, nil, nil, err
 	}
 
-	return sender, order, hold, market, nil
+	return sender, order, hold, nil
 }
 
 func countCreateDerivativeOrdersParams(
@@ -226,22 +243,21 @@ func (ec *ExchangeContract) castDerivativeOrder(
 ) (
 	*exchangetypesv2.DerivativeOrder,
 	sdk.Coins,
-	*exchangetypesv2.DerivativeMarket,
 	error,
 ) {
 	market, err := ec.getDerivativeMarket(solOrder.MarketID, evm)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 
-	humanReadableQuantity := market.QuantityFromChainFormat(sdkmath.LegacyNewDecFromBigInt(solOrder.Quantity))
-	humanReadablePrice := market.PriceFromChainFormat(sdkmath.LegacyNewDecFromBigInt(solOrder.Price))
-	humanReadableTriggerPrice := market.PriceFromChainFormat(sdkmath.LegacyNewDecFromBigInt(solOrder.TriggerPrice))
-	humanReadableMargin := market.NotionalFromChainFormat(sdkmath.LegacyNewDecFromBigInt(solOrder.Margin))
+	humanReadableQuantity := fromAPIFormat(solOrder.Quantity)
+	humanReadablePrice := fromAPIFormat(solOrder.Price)
+	humanReadableTriggerPrice := fromAPIFormat(solOrder.TriggerPrice)
+	humanReadableMargin := fromAPIFormat(solOrder.Margin)
 
 	orderType, err := parseOrderType(solOrder.OrderType)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 
 	orderV2 := &exchangetypesv2.DerivativeOrder{
@@ -258,14 +274,16 @@ func (ec *ExchangeContract) castDerivativeOrder(
 		TriggerPrice: &humanReadableTriggerPrice,
 	}
 
+	chainFormattedHold := market.NotionalToChainFormat(humanReadableMargin).TruncateInt()
+
 	hold := sdk.Coins{
 		sdk.NewCoin(
 			market.QuoteDenom,
-			sdkmath.NewIntFromBigInt(solOrder.Margin),
+			chainFormattedHold,
 		),
 	}
 
-	return orderV2, hold, market, nil
+	return orderV2, hold, nil
 }
 
 func (ec *ExchangeContract) castDerivativeOrders(
@@ -279,7 +297,7 @@ func (ec *ExchangeContract) castDerivativeOrders(
 	ordersV2 := []exchangetypesv2.DerivativeOrder{}
 	cumulativeHold := sdk.Coins{}
 	for _, solOrder := range solOrders {
-		orderV2, hold, _, err := ec.castDerivativeOrder(solOrder, evm)
+		orderV2, hold, err := ec.castDerivativeOrder(solOrder, evm)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -292,10 +310,8 @@ func (ec *ExchangeContract) castDerivativeOrders(
 func (ec *ExchangeContract) castQueryDerivativeOrdersRequest(
 	methodInputs abi.Arguments,
 	values []any,
-	evm *vm.EVM,
 ) (
 	query *exchangetypesv2.QueryDerivativeOrdersByHashesRequest,
-	market *exchangetypesv2.DerivativeMarket,
 	err error,
 ) {
 	type SolQueryDerivativeOrdersParams struct {
@@ -304,12 +320,7 @@ func (ec *ExchangeContract) castQueryDerivativeOrdersRequest(
 
 	var solArgs SolQueryDerivativeOrdersParams
 	if err := methodInputs.Copy(&solArgs, values); err != nil {
-		return nil, nil, err
-	}
-
-	market, err = ec.getDerivativeMarket(solArgs.Request.MarketID, evm)
-	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	query = &exchangetypesv2.QueryDerivativeOrdersByHashesRequest{
@@ -318,12 +329,11 @@ func (ec *ExchangeContract) castQueryDerivativeOrdersRequest(
 		OrderHashes:  solArgs.Request.OrderHashes,
 	}
 
-	return query, market, nil
+	return query, nil
 }
 
 func convertCreateDerivativeMarketOrderResponse(
 	in exchangetypesv2.MsgCreateDerivativeMarketOrderResponse,
-	market *exchangetypesv2.DerivativeMarket,
 ) exchangeabi.IExchangeModuleCreateDerivativeMarketOrderResponse {
 	res := exchangeabi.IExchangeModuleCreateDerivativeMarketOrderResponse{
 		OrderHash:              in.OrderHash,
@@ -339,30 +349,29 @@ func convertCreateDerivativeMarketOrderResponse(
 	}
 
 	if in.Results != nil {
-		res.Quantity = precompiletypes.ConvertLegacyDecToBigInt(market.QuantityToChainFormat(in.Results.Quantity))
-		res.Price = precompiletypes.ConvertLegacyDecToBigInt(market.PriceToChainFormat(in.Results.Price))
-		res.Fee = precompiletypes.ConvertLegacyDecToBigInt(market.NotionalToChainFormat(in.Results.Fee))
-		res.Payout = precompiletypes.ConvertLegacyDecToBigInt(market.NotionalToChainFormat(in.Results.Payout))
+		res.Quantity = ToAPIFormat(in.Results.Quantity)
+		res.Price = ToAPIFormat(in.Results.Price)
+		res.Fee = ToAPIFormat(in.Results.Fee)
+		res.Payout = ToAPIFormat(in.Results.Payout)
 		res.DeltaIsLong = in.Results.PositionDelta.IsLong
-		res.DeltaExecutionPrice = precompiletypes.ConvertLegacyDecToBigInt(market.PriceToChainFormat(in.Results.PositionDelta.ExecutionPrice))
-		res.DeltaExecutionQuantity = precompiletypes.ConvertLegacyDecToBigInt(market.QuantityToChainFormat(in.Results.PositionDelta.ExecutionQuantity))
-		res.DeltaExecutionMargin = precompiletypes.ConvertLegacyDecToBigInt(market.NotionalToChainFormat(in.Results.PositionDelta.ExecutionMargin))
+		res.DeltaExecutionPrice = ToAPIFormat(in.Results.PositionDelta.ExecutionPrice)
+		res.DeltaExecutionQuantity = ToAPIFormat(in.Results.PositionDelta.ExecutionQuantity)
+		res.DeltaExecutionMargin = ToAPIFormat(in.Results.PositionDelta.ExecutionMargin)
 	}
 	return res
 }
 
 func convertTrimmedDerivativeOrders(
 	orders []*exchangetypesv2.TrimmedDerivativeLimitOrder,
-	market *exchangetypesv2.DerivativeMarket,
 ) []exchangeabi.IExchangeModuleTrimmedDerivativeLimitOrder {
 	solOrders := []exchangeabi.IExchangeModuleTrimmedDerivativeLimitOrder{}
 
 	for _, order := range orders {
 		solOrders = append(solOrders, exchangeabi.IExchangeModuleTrimmedDerivativeLimitOrder{
-			Price:     precompiletypes.ConvertLegacyDecToBigInt(market.PriceToChainFormat(order.Price)),
-			Quantity:  precompiletypes.ConvertLegacyDecToBigInt(market.QuantityToChainFormat(order.Quantity)),
-			Margin:    precompiletypes.ConvertLegacyDecToBigInt(market.NotionalToChainFormat(order.Margin)),
-			Fillable:  precompiletypes.ConvertLegacyDecToBigInt(market.QuantityToChainFormat(order.Fillable)),
+			Price:     ToAPIFormat(order.Price),
+			Quantity:  ToAPIFormat(order.Quantity),
+			Margin:    ToAPIFormat(order.Margin),
+			Fillable:  ToAPIFormat(order.Fillable),
 			IsBuy:     order.IsBuy,
 			OrderHash: order.OrderHash,
 			Cid:       order.Cid,
@@ -384,7 +393,6 @@ func (ec *ExchangeContract) castCreateSpotOrderParams(
 	sdk.Address,
 	*exchangetypesv2.SpotOrder,
 	sdk.Coins,
-	*exchangetypesv2.SpotMarket,
 	error,
 ) {
 	type SolCreateSpotOrderParams struct {
@@ -394,17 +402,17 @@ func (ec *ExchangeContract) castCreateSpotOrderParams(
 
 	var solArgs SolCreateSpotOrderParams
 	if err := methodInputs.Copy(&solArgs, values); err != nil {
-		return sdk.AccAddress{}, nil, nil, nil, err
+		return sdk.AccAddress{}, nil, nil, err
 	}
 
 	sender := sdk.AccAddress(solArgs.Sender.Bytes())
 
-	order, hold, market, err := ec.castSpotOrder(solArgs.Order, evm)
+	order, hold, err := ec.castSpotOrder(solArgs.Order, evm)
 	if err != nil {
-		return sdk.AccAddress{}, nil, nil, nil, err
+		return sdk.AccAddress{}, nil, nil, err
 	}
 
-	return sender, order, hold, market, nil
+	return sender, order, hold, nil
 }
 
 func countCreateSpotOrdersParams(
@@ -460,21 +468,20 @@ func (ec *ExchangeContract) castSpotOrder(
 ) (
 	*exchangetypesv2.SpotOrder,
 	sdk.Coins,
-	*exchangetypesv2.SpotMarket,
 	error,
 ) {
 	market, err := ec.getSpotMarket(solOrder.MarketID, evm)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 
-	humanReadableQuantity := market.QuantityFromChainFormat(sdkmath.LegacyNewDecFromBigInt(solOrder.Quantity))
-	humanReadablePrice := market.NotionalFromChainFormat(sdkmath.LegacyNewDecFromBigInt(solOrder.Price))
-	humanReadableTriggerPrice := market.NotionalFromChainFormat(sdkmath.LegacyNewDecFromBigInt(solOrder.TriggerPrice))
+	humanReadableQuantity := fromAPIFormat(solOrder.Quantity)
+	humanReadablePrice := fromAPIFormat(solOrder.Price)
+	humanReadableTriggerPrice := fromAPIFormat(solOrder.TriggerPrice)
 
 	orderType, err := parseOrderType(solOrder.OrderType)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 
 	orderV2 := &exchangetypesv2.SpotOrder{
@@ -504,7 +511,7 @@ func (ec *ExchangeContract) castSpotOrder(
 		),
 	}
 
-	return orderV2, hold, market, nil
+	return orderV2, hold, nil
 }
 
 func (ec *ExchangeContract) castSpotOrders(
@@ -518,7 +525,7 @@ func (ec *ExchangeContract) castSpotOrders(
 	ordersV2 := []exchangetypesv2.SpotOrder{}
 	cumulativeHold := sdk.Coins{}
 	for _, solOrder := range solOrders {
-		orderV2, hold, _, err := ec.castSpotOrder(solOrder, evm)
+		orderV2, hold, err := ec.castSpotOrder(solOrder, evm)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -534,7 +541,6 @@ func (ec *ExchangeContract) castQuerySpotOrdersRequest(
 	evm *vm.EVM,
 ) (
 	query *exchangetypesv2.QuerySpotOrdersByHashesRequest,
-	market *exchangetypesv2.SpotMarket,
 	err error,
 ) {
 	type SolQuerySpotOrdersParams struct {
@@ -543,12 +549,7 @@ func (ec *ExchangeContract) castQuerySpotOrdersRequest(
 
 	var solArgs SolQuerySpotOrdersParams
 	if err := methodInputs.Copy(&solArgs, values); err != nil {
-		return nil, nil, err
-	}
-
-	market, err = ec.getSpotMarket(solArgs.Request.MarketID, evm)
-	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	query = &exchangetypesv2.QuerySpotOrdersByHashesRequest{
@@ -557,12 +558,11 @@ func (ec *ExchangeContract) castQuerySpotOrdersRequest(
 		OrderHashes:  solArgs.Request.OrderHashes,
 	}
 
-	return query, market, nil
+	return query, nil
 }
 
 func (ec *ExchangeContract) convertCreateSpotMarketOrderResponse(
 	in exchangetypesv2.MsgCreateSpotMarketOrderResponse,
-	market *exchangetypesv2.SpotMarket,
 ) exchangeabi.IExchangeModuleCreateSpotMarketOrderResponse {
 	res := exchangeabi.IExchangeModuleCreateSpotMarketOrderResponse{
 		OrderHash: in.OrderHash,
@@ -573,24 +573,23 @@ func (ec *ExchangeContract) convertCreateSpotMarketOrderResponse(
 	}
 
 	if in.Results != nil {
-		res.Quantity = precompiletypes.ConvertLegacyDecToBigInt(market.QuantityToChainFormat(in.Results.Quantity))
-		res.Price = precompiletypes.ConvertLegacyDecToBigInt(market.NotionalToChainFormat(in.Results.Price))
-		res.Fee = precompiletypes.ConvertLegacyDecToBigInt(market.NotionalToChainFormat(in.Results.Fee))
+		res.Quantity = ToAPIFormat(in.Results.Quantity)
+		res.Price = ToAPIFormat(in.Results.Price)
+		res.Fee = ToAPIFormat(in.Results.Fee)
 	}
 	return res
 }
 
 func (ec *ExchangeContract) convertTrimmedSpotOrders(
 	orders []*exchangetypesv2.TrimmedSpotLimitOrder,
-	market *exchangetypesv2.SpotMarket,
 ) []exchangeabi.IExchangeModuleTrimmedSpotLimitOrder {
 	solOrders := []exchangeabi.IExchangeModuleTrimmedSpotLimitOrder{}
 
 	for _, order := range orders {
 		solOrders = append(solOrders, exchangeabi.IExchangeModuleTrimmedSpotLimitOrder{
-			Price:     precompiletypes.ConvertLegacyDecToBigInt(market.NotionalToChainFormat(order.Price)),
-			Quantity:  precompiletypes.ConvertLegacyDecToBigInt(market.QuantityToChainFormat(order.Quantity)),
-			Fillable:  precompiletypes.ConvertLegacyDecToBigInt(market.QuantityToChainFormat(order.Fillable)),
+			Price:     ToAPIFormat(order.Price),
+			Quantity:  ToAPIFormat(order.Quantity),
+			Fillable:  ToAPIFormat(order.Fillable),
 			IsBuy:     order.IsBuy,
 			OrderHash: order.OrderHash,
 			Cid:       order.Cid,
@@ -766,10 +765,7 @@ func castOrderData(orderData []exchangeabi.IExchangeModuleOrderData) []*exchange
 * Positions
 *******************************************************************************/
 
-func (ec *ExchangeContract) castIncreasePositionParams(
-	args []any,
-	evm *vm.EVM,
-) (
+func (ec *ExchangeContract) castIncreasePositionParams(args []any, evm *vm.EVM) (
 	*exchangetypesv2.MsgIncreasePositionMargin,
 	sdk.Coins,
 	error,
@@ -794,7 +790,7 @@ func (ec *ExchangeContract) castIncreasePositionParams(
 	if err != nil {
 		return nil, nil, err
 	}
-	chainFormatAmount, err := precompiletypes.CastBigInt(args[4])
+	apiFormattedAmount, err := precompiletypes.CastBigInt(args[4])
 	if err != nil {
 		return nil, nil, err
 	}
@@ -804,7 +800,7 @@ func (ec *ExchangeContract) castIncreasePositionParams(
 		return nil, nil, err
 	}
 
-	humanReadableAmount := market.NotionalFromChainFormat(sdkmath.LegacyNewDecFromBigInt(chainFormatAmount))
+	humanReadableAmount := fromAPIFormat(apiFormattedAmount)
 
 	msg := &exchangetypesv2.MsgIncreasePositionMargin{
 		Sender:                  sender.String(),
@@ -814,20 +810,19 @@ func (ec *ExchangeContract) castIncreasePositionParams(
 		Amount:                  humanReadableAmount,
 	}
 
+	chainFormattedAmount := market.NotionalToChainFormat(humanReadableAmount).TruncateInt()
+
 	hold := sdk.Coins{
 		sdk.NewCoin(
 			market.QuoteDenom,
-			sdkmath.NewIntFromBigInt(chainFormatAmount),
+			chainFormattedAmount,
 		),
 	}
 
 	return msg, hold, nil
 }
 
-func (ec *ExchangeContract) castDecreasePositionParams(
-	args []any,
-	evm *vm.EVM,
-) (
+func (ec *ExchangeContract) castDecreasePositionParams(args []any, evm *vm.EVM) (
 	*exchangetypesv2.MsgDecreasePositionMargin,
 	sdk.Coins,
 	error,
@@ -852,7 +847,7 @@ func (ec *ExchangeContract) castDecreasePositionParams(
 	if err != nil {
 		return nil, nil, err
 	}
-	chainFormatAmount, err := precompiletypes.CastBigInt(args[4])
+	apiFormattedAmount, err := precompiletypes.CastBigInt(args[4])
 	if err != nil {
 		return nil, nil, err
 	}
@@ -862,7 +857,7 @@ func (ec *ExchangeContract) castDecreasePositionParams(
 		return nil, nil, err
 	}
 
-	humanReadableAmount := market.NotionalFromChainFormat(sdkmath.LegacyNewDecFromBigInt(chainFormatAmount))
+	humanReadableAmount := fromAPIFormat(apiFormattedAmount)
 
 	msg := &exchangetypesv2.MsgDecreasePositionMargin{
 		Sender:                  sender.String(),
@@ -872,10 +867,12 @@ func (ec *ExchangeContract) castDecreasePositionParams(
 		Amount:                  humanReadableAmount,
 	}
 
+	chainFormattedAmount := market.NotionalToChainFormat(humanReadableAmount).TruncateInt()
+
 	hold := sdk.Coins{
 		sdk.NewCoin(
 			market.QuoteDenom,
-			sdkmath.NewIntFromBigInt(chainFormatAmount),
+			chainFormattedAmount,
 		),
 	}
 
@@ -884,25 +881,20 @@ func (ec *ExchangeContract) castDecreasePositionParams(
 
 func (ec *ExchangeContract) convertSubaccountPositionsResponse(
 	resp *exchangetypesv2.QuerySubaccountPositionsResponse,
-	evm *vm.EVM,
 ) ([]exchangeabi.IExchangeModuleDerivativePosition, error) {
 	solResults := []exchangeabi.IExchangeModuleDerivativePosition{}
 
 	for _, pos := range resp.State {
-		market, err := ec.getDerivativeMarket(pos.MarketId, evm)
-		if err != nil {
-			return nil, err
-		}
 		solPos := exchangeabi.IExchangeModuleDerivativePosition{
 			SubaccountID: pos.SubaccountId,
 			MarketID:     pos.MarketId,
 		}
 		if pos.Position != nil {
 			solPos.IsLong = pos.Position.IsLong
-			solPos.Quantity = precompiletypes.ConvertLegacyDecToBigInt(market.QuantityToChainFormat(pos.Position.Quantity))
-			solPos.EntryPrice = precompiletypes.ConvertLegacyDecToBigInt(market.PriceToChainFormat(pos.Position.EntryPrice))
-			solPos.Margin = precompiletypes.ConvertLegacyDecToBigInt(market.NotionalToChainFormat(pos.Position.Margin))
-			solPos.CumulativeFundingEntry = precompiletypes.ConvertLegacyDecToBigInt(market.NotionalToChainFormat(pos.Position.CumulativeFundingEntry))
+			solPos.Quantity = ToAPIFormat(pos.Position.Quantity)
+			solPos.EntryPrice = ToAPIFormat(pos.Position.EntryPrice)
+			solPos.Margin = ToAPIFormat(pos.Position.Margin)
+			solPos.CumulativeFundingEntry = ToAPIFormat(pos.Position.CumulativeFundingEntry)
 		}
 		solResults = append(solResults, solPos)
 	}

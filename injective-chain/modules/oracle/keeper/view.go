@@ -50,6 +50,8 @@ func (k *Keeper) GetPrice(ctx sdk.Context, oracletype types.OracleType, base, qu
 		return nil
 	case types.OracleType_Stork:
 		return k.GetStorkPrice(ctx, base, quote)
+	case types.OracleType_ChainlinkDataStreams:
+		return k.GetChainlinkDataStreamsPrice(ctx, base, quote)
 	}
 
 	return nil
@@ -200,6 +202,13 @@ func (k *Keeper) getPriceStatesForOracle(
 	case types.OracleType_Stork:
 		priceStateGetter = func(symbol string) *types.PriceState {
 			if state := k.GetStorkPriceState(ctx, symbol); state != nil {
+				return &state.PriceState
+			}
+			return nil
+		}
+	case types.OracleType_ChainlinkDataStreams:
+		priceStateGetter = func(symbol string) *types.PriceState {
+			if state := k.GetChainlinkDataStreamsPriceState(ctx, symbol); state != nil {
 				return &state.PriceState
 			}
 			return nil

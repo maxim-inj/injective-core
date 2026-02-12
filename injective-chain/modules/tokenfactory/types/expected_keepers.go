@@ -5,8 +5,6 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
-
-	permissionstypes "github.com/InjectiveLabs/injective-core/injective-chain/modules/permissions/types"
 )
 
 type BankKeeper interface {
@@ -35,9 +33,4 @@ type AccountKeeper interface {
 // CommunityPoolKeeper defines the contract needed to be fulfilled for community pool interactions.
 type CommunityPoolKeeper interface {
 	FundCommunityPool(ctx context.Context, amount sdk.Coins, sender sdk.AccAddress) error
-}
-
-type PermissionsKeeper interface {
-	HasNamespace(ctx sdk.Context, denom string) bool
-	HasPermissionsForAction(ctx sdk.Context, denom string, actor sdk.AccAddress, action permissionstypes.Action) bool
 }

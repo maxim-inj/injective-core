@@ -18,7 +18,7 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/InjectiveLabs/injective-core/injective-chain/modules/exchange/types"
-	v2 "github.com/InjectiveLabs/injective-core/injective-chain/modules/exchange/types/v2"
+	"github.com/InjectiveLabs/injective-core/injective-chain/modules/exchange/types/v2"
 )
 
 // orderParams holds the basic parameters extracted from command flags

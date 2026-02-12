@@ -15,13 +15,12 @@ import (
 var _ types.MsgServer = MsgServer{}
 
 type MsgServer struct {
-	BandMsgServer
-	BandIBCMsgServer
 	PricefeedMsgServer
 	CoinbaseMsgServer
 	ProviderMsgServer
 	PythMsgServer
 	StorkMsgServer
+	ChainlinkDataStreamsMsgServer
 
 	Keeper
 	svcTags metrics.Tags
@@ -31,14 +30,13 @@ type MsgServer struct {
 // for the provided Keeper.
 func NewMsgServerImpl(keeper Keeper) types.MsgServer {
 	return &MsgServer{
-		BandMsgServer:      NewBandMsgServerImpl(keeper),
-		BandIBCMsgServer:   NewBandIBCMsgServerImpl(keeper),
-		PricefeedMsgServer: NewPricefeedMsgServerImpl(keeper),
-		CoinbaseMsgServer:  NewCoinbaseMsgServerImpl(keeper),
-		ProviderMsgServer:  NewProviderMsgServerImpl(keeper),
-		PythMsgServer:      NewPythMsgServerImpl(keeper),
-		StorkMsgServer:     NewStorkMsgServerImpl(keeper),
-		Keeper:             keeper,
+		PricefeedMsgServer:            NewPricefeedMsgServerImpl(keeper),
+		CoinbaseMsgServer:             NewCoinbaseMsgServerImpl(keeper),
+		ProviderMsgServer:             NewProviderMsgServerImpl(keeper),
+		PythMsgServer:                 NewPythMsgServerImpl(keeper),
+		StorkMsgServer:                NewStorkMsgServerImpl(keeper),
+		ChainlinkDataStreamsMsgServer: NewChainlinkDataStreamsMsgServerImpl(keeper),
+		Keeper:                        keeper,
 		svcTags: metrics.Tags{
 			"svc": "oracle_h",
 		},

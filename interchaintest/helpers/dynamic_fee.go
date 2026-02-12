@@ -2,69 +2,55 @@ package helpers
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 
 	sdkmath "cosmossdk.io/math"
+	txfeestypes "github.com/InjectiveLabs/sdk-go/chain/txfees/types"
 	"github.com/strangelove-ventures/interchaintest/v8/chain/cosmos"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
-// GetDynamicGasPrice returns the dynamic gas price for a EIP-1559 compatible chain.
+// GetDynamicGasPrice returns the dynamic gas price for a EIP-1559 compatible chain using gRPC.
 func GetDynamicGasPrice(
 	t *testing.T,
 	ctx context.Context,
-	node *cosmos.ChainNode,
+	chain *cosmos.CosmosChain,
 ) sdkmath.LegacyDec {
-	type baseFee struct {
-		BaseFee string `json:"base_fee"`
-	}
+	t.Helper()
 
-	type result struct {
-		BaseFee baseFee `json:"base_fee"`
-	}
+	// Create gRPC connection
+	conn, err := grpc.NewClient(chain.GetHostGRPCAddress(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err, "failed to create gRPC connection")
+	defer conn.Close()
 
-	var fee result
-	resp, _, err := node.ExecQuery(ctx, "txfees", "base-fee", "--chain-id", node.Chain.Config().ChainID)
-	require.NoError(t, err)
-	require.NotNil(t, resp)
-	require.NoError(t, json.Unmarshal(resp, &fee))
+	// Create txfees query client and execute query
+	queryClient := txfeestypes.NewQueryClient(conn)
+	resp, err := QueryRPC(ctx, queryClient.GetEipBaseFee, &txfeestypes.QueryEipBaseFeeRequest{})
+	require.NoError(t, err, "error querying EIP base fee")
+	require.NotNil(t, resp.BaseFee, "base fee is nil")
 
-	return sdkmath.LegacyMustNewDecFromStr(fee.BaseFee.BaseFee)
+	return resp.BaseFee.BaseFee
 }
 
-// TxFeesParams represents the parameters of the txfees module.
-type TxFeesParams struct {
-	MaxGasWantedPerTx                    uint64 `json:"max_gas_wanted_per_tx,string"`
-	HighGasTxThreshold                   string `json:"high_gas_tx_threshold"`
-	MinGasPriceForHighGasTx              string `json:"min_gas_price_for_high_gas_tx"`
-	Mempool1559Enabled                   bool   `json:"mempool1559_enabled"`
-	MinGasPrice                          string `json:"min_gas_price"`
-	DefaultBaseFeeMultiplier             string `json:"default_base_fee_multiplier"`
-	MaxBaseFeeMultiplier                 string `json:"max_base_fee_multiplier"`
-	ResetInterval                        string `json:"reset_interval"`
-	MaxBlockChangeRate                   string `json:"max_block_change_rate"`
-	TargetBlockSpacePercentRate          string `json:"target_block_space_percent_rate"`
-	RecheckFeeLowBaseFee                 string `json:"recheck_fee_low_base_fee"`
-	RecheckFeeHighBaseFee                string `json:"recheck_fee_high_base_fee"`
-	RecheckFeeBaseFeeThresholdMultiplier string `json:"recheck_fee_base_fee_threshold_multiplier"`
-}
-
-// GetTxFeesParams returns the parameters of the txfees module.
+// GetTxFeesParams returns the parameters of the txfees module using gRPC.
 func GetTxFeesParams(
 	t *testing.T,
 	ctx context.Context,
-	node *cosmos.ChainNode,
-) TxFeesParams {
-	type result struct {
-		Params TxFeesParams `json:"params"`
-	}
+	chain *cosmos.CosmosChain,
+) *txfeestypes.Params {
+	t.Helper()
 
-	var paramsResult result
-	resp, _, err := node.ExecQuery(ctx, "txfees", "params", "--chain-id", node.Chain.Config().ChainID)
-	require.NoError(t, err)
-	require.NotNil(t, resp)
-	require.NoError(t, json.Unmarshal(resp, &paramsResult))
+	// Create gRPC connection
+	conn, err := grpc.NewClient(chain.GetHostGRPCAddress(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err, "failed to create gRPC connection")
+	defer conn.Close()
 
-	return paramsResult.Params
+	// Create txfees query client and execute query
+	queryClient := txfeestypes.NewQueryClient(conn)
+	resp, err := QueryRPC(ctx, queryClient.Params, &txfeestypes.QueryParamsRequest{})
+	require.NoError(t, err, "error querying txfees params")
+
+	return &resp.Params
 }

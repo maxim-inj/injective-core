@@ -62,6 +62,9 @@ var (
 	// StorkPriceKey is the prefix for the priceID => StorkPriceState store.
 	StorkPriceKey     = []byte{0x81}
 	StorkPublisherKey = []byte{0x82}
+
+	// ChainlinkDataStreamsPriceKey is the prefix for the feedID => ChainlinkDataStreamsPriceState store.
+	ChainlinkDataStreamsPriceKey = []byte{0x91}
 )
 
 func GetBandPriceStoreKey(symbol string) []byte {
@@ -168,4 +171,9 @@ func GetProviderPriceKey(provider, symbol string) []byte {
 
 func GetPythPriceStoreKey(priceID common.Hash) []byte {
 	return append(PythPriceKey, priceID.Bytes()...)
+}
+
+// GetChainlinkDataStreamsPriceStoreKey returns the store key for a Chainlink Data Streams price state.
+func GetChainlinkDataStreamsPriceStoreKey(feedID string) []byte {
+	return append(ChainlinkDataStreamsPriceKey, []byte(feedID)...)
 }

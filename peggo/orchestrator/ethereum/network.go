@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/InjectiveLabs/metrics"
+	"github.com/InjectiveLabs/coretracer"
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	gethcommon "github.com/ethereum/go-ethereum/common"
@@ -35,10 +35,22 @@ type Network interface {
 	GetHeaderByNumber(ctx context.Context, number *big.Int) (*gethtypes.Header, error)
 	GetPeggyID(ctx context.Context) (gethcommon.Hash, error)
 
-	GetSendToInjectiveEvents(startBlock, endBlock uint64) ([]*peggyevents.PeggySendToInjectiveEvent, error)
-	GetPeggyERC20DeployedEvents(startBlock, endBlock uint64) ([]*peggyevents.PeggyERC20DeployedEvent, error)
-	GetValsetUpdatedEvents(startBlock, endBlock uint64) ([]*peggyevents.PeggyValsetUpdatedEvent, error)
-	GetTransactionBatchExecutedEvents(startBlock, endBlock uint64) ([]*peggyevents.PeggyTransactionBatchExecutedEvent, error)
+	GetSendToInjectiveEvents(ctx context.Context,
+		startBlock,
+		endBlock uint64,
+	) ([]*peggyevents.PeggySendToInjectiveEvent, error)
+	GetPeggyERC20DeployedEvents(ctx context.Context,
+		startBlock,
+		endBlock uint64,
+	) ([]*peggyevents.PeggyERC20DeployedEvent, error)
+	GetValsetUpdatedEvents(ctx context.Context,
+		startBlock,
+		endBlock uint64,
+	) ([]*peggyevents.PeggyValsetUpdatedEvent, error)
+	GetTransactionBatchExecutedEvents(ctx context.Context,
+		startBlock,
+		endBlock uint64,
+	) ([]*peggyevents.PeggyTransactionBatchExecutedEvent, error)
 
 	GetValsetNonce(ctx context.Context) (*big.Int, error)
 	SendEthValsetUpdate(ctx context.Context,
@@ -59,7 +71,7 @@ type Network interface {
 
 type network struct {
 	peggy.PeggyContract
-	svcTags metrics.Tags
+	svcTags coretracer.Tags
 
 	FromAddr gethcommon.Address
 }
@@ -107,16 +119,14 @@ func NewNetwork(
 	n := &network{
 		PeggyContract: peggyContract,
 		FromAddr:      fromAddr,
-		svcTags:       map[string]string{"svc": "peggy_eth"},
+		svcTags:       coretracer.NewTag("svc", "peggy_eth"),
 	}
 
 	return n, nil
 }
 
 func (n *network) TokenDecimals(ctx context.Context, tokenContract gethcommon.Address) (uint8, error) {
-	metrics.ReportFuncCall(n.svcTags)
-	doneFn := metrics.ReportFuncTiming(n.svcTags)
-	defer doneFn()
+	defer coretracer.Trace(&ctx, n.svcTags)()
 
 	msg := ethereum.CallMsg{
 		To:   &tokenContract,
@@ -136,41 +146,35 @@ func (n *network) TokenDecimals(ctx context.Context, tokenContract gethcommon.Ad
 }
 
 func (n *network) GetHeaderByNumber(ctx context.Context, number *big.Int) (*gethtypes.Header, error) {
-	metrics.ReportFuncCall(n.svcTags)
-	doneFn := metrics.ReportFuncTiming(n.svcTags)
-	defer doneFn()
+	defer coretracer.Trace(&ctx, n.svcTags)()
 
 	return n.Provider().HeaderByNumber(ctx, number)
 }
 
 func (n *network) GetPeggyID(ctx context.Context) (gethcommon.Hash, error) {
-	metrics.ReportFuncCall(n.svcTags)
-	doneFn := metrics.ReportFuncTiming(n.svcTags)
-	defer doneFn()
+	defer coretracer.Trace(&ctx, n.svcTags)()
 
 	return n.PeggyContract.GetPeggyID(ctx, n.FromAddr)
 }
 
 func (n *network) GetValsetNonce(ctx context.Context) (*big.Int, error) {
-	metrics.ReportFuncCall(n.svcTags)
-	doneFn := metrics.ReportFuncTiming(n.svcTags)
-	defer doneFn()
+	defer coretracer.Trace(&ctx, n.svcTags)()
 
 	return n.PeggyContract.GetValsetNonce(ctx, n.FromAddr)
 }
 
 func (n *network) GetTxBatchNonce(ctx context.Context, erc20ContractAddress gethcommon.Address) (*big.Int, error) {
-	metrics.ReportFuncCall(n.svcTags)
-	doneFn := metrics.ReportFuncTiming(n.svcTags)
-	defer doneFn()
+	defer coretracer.Trace(&ctx, n.svcTags)()
 
 	return n.PeggyContract.GetTxBatchNonce(ctx, erc20ContractAddress, n.FromAddr)
 }
 
-func (n *network) GetSendToInjectiveEvents(startBlock, endBlock uint64) ([]*peggyevents.PeggySendToInjectiveEvent, error) {
-	metrics.ReportFuncCall(n.svcTags)
-	doneFn := metrics.ReportFuncTiming(n.svcTags)
-	defer doneFn()
+func (n *network) GetSendToInjectiveEvents(
+	ctx context.Context,
+	startBlock,
+	endBlock uint64,
+) ([]*peggyevents.PeggySendToInjectiveEvent, error) {
+	defer coretracer.Trace(&ctx, n.svcTags)()
 
 	peggyFilterer, err := peggyevents.NewPeggyFilterer(n.Address(), n.Provider())
 	if err != nil {
@@ -199,10 +203,12 @@ func (n *network) GetSendToInjectiveEvents(startBlock, endBlock uint64) ([]*pegg
 	return sendToInjectiveEvents, nil
 }
 
-func (n *network) GetPeggyERC20DeployedEvents(startBlock, endBlock uint64) ([]*peggyevents.PeggyERC20DeployedEvent, error) {
-	metrics.ReportFuncCall(n.svcTags)
-	doneFn := metrics.ReportFuncTiming(n.svcTags)
-	defer doneFn()
+func (n *network) GetPeggyERC20DeployedEvents(
+	ctx context.Context,
+	startBlock,
+	endBlock uint64,
+) ([]*peggyevents.PeggyERC20DeployedEvent, error) {
+	defer coretracer.Trace(&ctx, n.svcTags)()
 
 	peggyFilterer, err := peggyevents.NewPeggyFilterer(n.Address(), n.Provider())
 	if err != nil {
@@ -231,10 +237,8 @@ func (n *network) GetPeggyERC20DeployedEvents(startBlock, endBlock uint64) ([]*p
 	return transactionBatchExecutedEvents, nil
 }
 
-func (n *network) GetValsetUpdatedEvents(startBlock, endBlock uint64) ([]*peggyevents.PeggyValsetUpdatedEvent, error) {
-	metrics.ReportFuncCall(n.svcTags)
-	doneFn := metrics.ReportFuncTiming(n.svcTags)
-	defer doneFn()
+func (n *network) GetValsetUpdatedEvents(ctx context.Context, startBlock, endBlock uint64) ([]*peggyevents.PeggyValsetUpdatedEvent, error) {
+	defer coretracer.Trace(&ctx, n.svcTags)()
 
 	peggyFilterer, err := peggyevents.NewPeggyFilterer(n.Address(), n.Provider())
 	if err != nil {
@@ -263,10 +267,12 @@ func (n *network) GetValsetUpdatedEvents(startBlock, endBlock uint64) ([]*peggye
 	return valsetUpdatedEvents, nil
 }
 
-func (n *network) GetTransactionBatchExecutedEvents(startBlock, endBlock uint64) ([]*peggyevents.PeggyTransactionBatchExecutedEvent, error) {
-	metrics.ReportFuncCall(n.svcTags)
-	doneFn := metrics.ReportFuncTiming(n.svcTags)
-	defer doneFn()
+func (n *network) GetTransactionBatchExecutedEvents(
+	ctx context.Context,
+	startBlock,
+	endBlock uint64,
+) ([]*peggyevents.PeggyTransactionBatchExecutedEvent, error) {
+	defer coretracer.Trace(&ctx, n.svcTags)()
 
 	peggyFilterer, err := peggyevents.NewPeggyFilterer(n.Address(), n.Provider())
 	if err != nil {

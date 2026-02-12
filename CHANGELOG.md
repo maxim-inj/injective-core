@@ -34,6 +34,69 @@ Ref: https://keepachangelog.com/en/1.1.0/
 
 # Changelog
 
+## [Unreleased]
+
+## [v1.18.0](https://github.com/InjectiveFoundation/injective-core/releases/tag/v1.18.0) - 2026-02-19
+
+### Features
+
+- (ledger)  Added multisig support for transactions with Ledger signatures
+- (websocket)  New websocket server that works as a wrapper of the chainstream server, allowing users to receive the same updates without using gRPC streams
+- (exchange)  Added support for disable minimum protocol fee for certain markets via governance
+- (oracle)  Added the new oracle type for prices provided by Chainling Data Streams
+- (exchange)  New message to activate the PostOnlyMode for a configurable number of blocks (restricted to governance or exchange module admins)
+- (exchange)  Enable user to contract position transfers for wasm privileged actions
+- (permissions) Support for EVM contract hook inside permissions module
+- (evm)  Bump max contract code size to 100000
+
+### Bug Fixes
+
+- (evm)  Fix in the EVM GetBalance function to return the account's available balance only, and not the total balance
+- (peggy)  Added EthereumSigned interface registration in peggy module codec
+- (peggy)  Added logic to initialize MintAmountERC20 value when creating a new peggy rate limit
+- (evm)  Allow set-metadata from bank precompile only for erc20 denoms
+- (exchange)  Added AdminInfo validation in market launch proposals for spot, perpetual and expiry futures markets
+- (exchange)  Fixed unmarshalling issue of json-encoded BatchExchangeModificationsProposal in cli.
+- (exchange)  Removed the special permission for exchange module admins to change the module's params
+- (auction)  Handle permission errors when transferring tokens to auction module
+- (txfees)  Changed the target gas calculation to be correctly updated after parameter changes
+- (exchange)  Added validation to the MsgAuthorizeStakeGrants (v1beta1 and v2) to reject grant authorizations with repeated grantees
+- (exchange)  Fixed issue with funding in atomic orders
+- (exchange)  Fixe the MsgOffsetPosition logic to ensure that affected positions receive their accumulated funding before being closed or reduced.
+- (peggy)  Added validations for the ETH address registration done with the MsgSetOrchestratorAddresses message
+- (exchange)  Makes the quote price update timestamp equal to the base price update timestamp for price pairs if quote asset is USD.
+- (peggy)  Correctly parse Peggo passphrases from .env file
+- (peggy)  Use math.LegacyDec instead of float64 for calculating power diff between valsets
+- (peggo)  Remove redundant sleep when relaying events to Injective
+- (evm)  Support block.basefee call from EVM code but return 0 as we don't have correct wiring yet
+- (evm)  Allow set-metadata from bank precompile only for erc20 denoms
+- (peggy)  Ensure txs from Alchemy WS can be identified by their ABI method
+- (peggy)  Creating batches does not depend on fees of the previous batch
+- (txfees)  Improved txfees module params validation to avoid possible divisions by zero when calculating the dynamic gas price
+
+### Improvements
+
+- (erc20)  Allow only FixedSupply version of ERC20 token pair for tokenfactory denoms with disabled mint / burn policies
+- (exchange) Implemented a hook inside exchange for EVM PostTxProcessing to be able to call custom exchange logic on EVM events.
+- (exchange)  Simplify synthetic trades
+- (exchange)  Added more logically consistent behavior for reduce-only synthetic trades
+- (evm)  Simplify log decoding to only use transaction response data
+- (exchange)  Added position cache into order matching for improved accuracy in validation checks
+- (auction)  Allow current auction best bidder to increase the bid amount by sending only the funds for the increment amount
+- (exchange)  Added logic to emit execution (trade) events for the synthetic trades executed via wasm privileged actions in the exchange module
+- (peggy)  Introduce Peggy Orchestrator health check HTTP endpoint
+- (evm)  Freeze solidity contract versions in precompile bindings for reproducible builds and verification
+- (permissions)  Allow removing of hook addresses from a namespace via MsgUpdateNamespace
+
+### API Breaking
+
+- (evm)  Exchange precompile now uses human-readable number format (API FORMAT with 18 decimal scaling) for numeric parameters:
+  - Derivative orders: price, quantity, margin
+  - Spot orders: price, quantity
+  - Position margin operations: margin amount
+  - Order queries: returns prices and quantities in API FORMAT
+  - Deposit/withdraw/transfer operations remain in CHAIN FORMAT (token's native decimals)
+
 ## [v1.17.2](https://github.com/InjectiveFoundation/injective-core/releases/tag/v1.17.2) - 2025-12-18
 
 ### Features
@@ -47,6 +110,7 @@ Ref: https://keepachangelog.com/en/1.1.0/
 - (exchange)  Set open interest to zero after settling market
 - (exchange)  Fixed the expiry future settlement price calculation (TWAP) at expiration time (the calculation was wrong for markets with oracle quote asset different than USD)
 - (exchange)  Fixed the order of the expiration block validation for orders, ensuring it is done before any change is done to the user's balance
+- (peggy)  Re-deployed Peggy contracts on Sepolia Testnet to unblock withdrawals
 - (cli)  Use EIP712 v2 to generate payload when signing with Ledger devices
 - (evm)  Patch TxResponses with correct tx and log indexes for EVM transaction logs (eth_getLogs method)
 
@@ -100,6 +164,20 @@ Ref: https://keepachangelog.com/en/1.1.0/
 
 - (exchange)  Added logic in exchange module BeginBlock to enable the post-only mode after a downtime of configurable length
 - (auction)  Added a bidders whitelist to the auction module. If the whitelist is configured, only the addresses in it will be able to bid
+
+### Bug Fixes
+
+- (exchange)  Fixed historical v1 Exchange queries for pre v1.16 blocks
+
+## [v1.16.3]() todo link and date
+
+### Features
+
+- (downtime-detector)  Added the downtime-detector module
+
+### Improvements
+
+- (exchange)  Added logic in exchange module BeginBlock to enable the post-only mode after a downtime of configurable length
 
 ### Bug Fixes
 

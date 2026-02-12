@@ -69,6 +69,7 @@ fi
 cat $INJHOME/config/genesis.json | jq '.app_state["staking"]["params"]["bond_denom"]="inj"' > $INJHOME/config/tmp_genesis.json && mv $INJHOME/config/tmp_genesis.json $INJHOME/config/genesis.json
 cat $INJHOME/config/genesis.json | jq '.app_state["crisis"]["constant_fee"]["denom"]="inj"' > $INJHOME/config/tmp_genesis.json && mv $INJHOME/config/tmp_genesis.json $INJHOME/config/genesis.json
 cat $INJHOME/config/genesis.json | jq '.app_state["gov"]["params"]["min_deposit"][0]["denom"]="inj"' > $INJHOME/config/tmp_genesis.json && mv $INJHOME/config/tmp_genesis.json $INJHOME/config/genesis.json
+cat $INJHOME/config/genesis.json | jq '.app_state["gov"]["params"]["expedited_min_deposit"][0]["denom"]="inj"' > $INJHOME/config/tmp_genesis.json && mv $INJHOME/config/tmp_genesis.json $INJHOME/config/genesis.json
 cat $INJHOME/config/genesis.json | jq '.app_state["gov"]["params"]["min_initial_deposit_ratio"]="0.100000000000000000"' > $INJHOME/config/tmp_genesis.json && mv $INJHOME/config/tmp_genesis.json $INJHOME/config/genesis.json
 echo "NOTE: Setting Governance Voting Period to 10 seconds for easy testing"
 cat $INJHOME/config/genesis.json | jq '.app_state["gov"]["params"]["voting_period"]="10s"' > $INJHOME/config/tmp_genesis.json && mv $INJHOME/config/tmp_genesis.json $INJHOME/config/genesis.json

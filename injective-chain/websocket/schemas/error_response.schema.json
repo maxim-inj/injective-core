@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "error_response.schema.json",
+  "title": "Error Response",
+  "description": "JSON-RPC 2.0 error response",
+  "type": "object",
+  "required": ["jsonrpc", "id", "error"],
+  "properties": {
+    "jsonrpc": {
+      "type": "string",
+      "const": "2.0",
+      "description": "JSON-RPC protocol version"
+    },
+    "id": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Request identifier matching the original request"
+    },
+    "error": {
+      "type": "object",
+      "required": ["code", "message"],
+      "properties": {
+        "code": {
+          "type": "integer",
+          "description": "Error code"
+        },
+        "message": {
+          "type": "string",
+          "description": "Human-readable error message"
+        },
+        "data": {
+          "type": "string",
+          "description": "Additional error data (optional)"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}
+

@@ -27,9 +27,7 @@ import (
 	"github.com/CosmWasm/wasmd/x/wasm"
 	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
 	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
-	"github.com/InjectiveLabs/injective-core/injective-chain/modules/evm"
-	evmkeeper "github.com/InjectiveLabs/injective-core/injective-chain/modules/evm/keeper"
-	evmtypes "github.com/InjectiveLabs/injective-core/injective-chain/modules/evm/types"
+	"github.com/InjectiveLabs/metrics"
 	hyperlanecore "github.com/bcp-innovations/hyperlane-cosmos/x/core"
 	hyperlanecorekeeper "github.com/bcp-innovations/hyperlane-cosmos/x/core/keeper"
 	hyperlanecoretypes "github.com/bcp-innovations/hyperlane-cosmos/x/core/types"
@@ -162,10 +160,13 @@ import (
 	erc20keeper "github.com/InjectiveLabs/injective-core/injective-chain/modules/erc20/keeper"
 	erc20module "github.com/InjectiveLabs/injective-core/injective-chain/modules/erc20/module"
 	erc20types "github.com/InjectiveLabs/injective-core/injective-chain/modules/erc20/types"
+	"github.com/InjectiveLabs/injective-core/injective-chain/modules/evm"
+	evmkeeper "github.com/InjectiveLabs/injective-core/injective-chain/modules/evm/keeper"
 	bankpc "github.com/InjectiveLabs/injective-core/injective-chain/modules/evm/precompiles/bank"
 	exchangepc "github.com/InjectiveLabs/injective-core/injective-chain/modules/evm/precompiles/exchange"
 	stakingpc "github.com/InjectiveLabs/injective-core/injective-chain/modules/evm/precompiles/staking"
 	cosmostracing "github.com/InjectiveLabs/injective-core/injective-chain/modules/evm/tracing"
+	evmtypes "github.com/InjectiveLabs/injective-core/injective-chain/modules/evm/types"
 	"github.com/InjectiveLabs/injective-core/injective-chain/modules/exchange"
 	exchangekeeper "github.com/InjectiveLabs/injective-core/injective-chain/modules/exchange/keeper"
 	exchangetypes "github.com/InjectiveLabs/injective-core/injective-chain/modules/exchange/types"
@@ -195,7 +196,7 @@ import (
 	chainstreamserver "github.com/InjectiveLabs/injective-core/injective-chain/stream/server"
 	chaintypes "github.com/InjectiveLabs/injective-core/injective-chain/types"
 	"github.com/InjectiveLabs/injective-core/injective-chain/wasmbinding"
-	"github.com/InjectiveLabs/metrics"
+	injwebsocket "github.com/InjectiveLabs/injective-core/injective-chain/websocket"
 )
 
 func init() {
@@ -288,7 +289,7 @@ var (
 		wasmtypes.ModuleName:           {authtypes.Burner},
 		wasmxtypes.ModuleName:          {authtypes.Burner},
 		evmtypes.ModuleName:            {authtypes.Minter, authtypes.Burner}, // used for secure addition and subtraction of balance using module account
-		erc20types.ModuleName:          nil,
+		erc20types.ModuleName:          {authtypes.Minter, authtypes.Burner}, // to mint and burn erc20 denom
 		hyperlanecoretypes.ModuleName:  nil,
 		hyperlanewarptypes.ModuleName:  {authtypes.Minter, authtypes.Burner},
 	}
@@ -302,7 +303,7 @@ var (
 		peggytypes.ModuleName:        true,
 		tokenfactorytypes.ModuleName: true,
 		wasmxtypes.ModuleName:        true,
-		evmtypes.ModuleName:          true,
+		erc20types.ModuleName:        true, // to burn erc20 denom
 		govtypes.ModuleName:          true,
 	}
 )
@@ -384,6 +385,7 @@ type InjectiveApp struct {
 	// stream server
 	ChainStreamServer *chainstreamserver.StreamServer
 	EventPublisher    *chainstreamserver.Publisher
+	WebsocketServer   *injwebsocket.Server
 
 	// custom checkTx wrapper to ensure mempool parity between app and cometbft
 	checkTxHandler skipchecktx.CheckTx
@@ -406,8 +408,8 @@ func NewInjectiveApp(
 
 	app := initInjectiveApp(appName, logger, db, traceStore, baseAppOptions...)
 
-	oracleModule := app.initKeepers(authority, appOpts, wasmConfig)
-	app.initManagers(oracleModule)
+	app.initKeepers(authority, appOpts, wasmConfig)
+	app.initManagers()
 
 	app.registerUpgradeHandlers()
 
@@ -556,6 +558,7 @@ func NewInjectiveApp(
 		&app.TxFeesKeeper,
 		app.CreateQueryContext,
 	)
+	app.WebsocketServer = injwebsocket.NewServer(app.ChainStreamServer, logger)
 
 	authzcdc.GlobalCdc = codec.NewProtoCodec(app.interfaceRegistry)
 	ante.GlobalCdc = codec.NewProtoCodec(app.interfaceRegistry)
@@ -781,6 +784,10 @@ func (app *InjectiveApp) GetICAHostKeeper() icahostkeeper.Keeper {
 	return app.ICAHostKeeper
 }
 
+func (app *InjectiveApp) GetOracleKeeper() *oraclekeeper.Keeper {
+	return &app.OracleKeeper
+}
+
 func (app *InjectiveApp) GetTxConfig() client.TxConfig { return app.txConfig }
 
 // AutoCliOpts returns the autocli options for the app.
@@ -995,7 +1002,7 @@ func (app *InjectiveApp) RegisterTendermintService(clientCtx client.Context) {
 	cmtservice.RegisterTendermintService(clientCtx, app.BaseApp.GRPCQueryRouter(), app.interfaceRegistry, app.Query)
 }
 
-func (app *InjectiveApp) initKeepers(authority string, appOpts servertypes.AppOptions, wasmConfig wasmtypes.WasmConfig) oracle.AppModule {
+func (app *InjectiveApp) initKeepers(authority string, appOpts servertypes.AppOptions, wasmConfig wasmtypes.WasmConfig) { //nolint:revive // this is fine
 	homePath := cast.ToString(appOpts.Get(flags.FlagHome))
 	dataDir := filepath.Join(homePath, "data")
 
@@ -1172,9 +1179,11 @@ func (app *InjectiveApp) initKeepers(authority string, appOpts servertypes.AppOp
 				return bankpc.NewContract(
 					app.BankKeeper,
 					erc20keeper.NewQueryServerImpl(app.ERC20Keeper), // it's OK to reference erc20Keeper here since it's inside generator function that will be called later
+					app.ERC20Keeper,
+					tokenfactorykeeper.NewMsgServerImpl(app.TokenFactoryKeeper),
+					app.AccountKeeper,
 					app.codec,
 					storetypes.TransientGasConfig(),
-					app.DistrKeeper,
 				)
 			},
 			func(_ sdk.Context, rules ethparams.Rules) vm.PrecompiledContract {
@@ -1215,6 +1224,7 @@ func (app *InjectiveApp) initKeepers(authority string, appOpts servertypes.AppOp
 		app.IBCKeeper.PortKeeper,
 		app.ScopedOracleKeeper,
 		&app.OcrKeeper,
+		app.EvmKeeper,
 		authority,
 	)
 
@@ -1277,8 +1287,12 @@ func (app *InjectiveApp) initKeepers(authority string, appOpts servertypes.AppOp
 		app.DistrKeeper,
 		app.StakingKeeper,
 		app.DowntimeDetectorKeeper,
+		nil, // will be set later using .SetPermissionsKeeper(app.PermissionsKeeper)
 		authority,
 	)
+
+	evmHooks := evmtypes.NewEVMHooks(app.ExchangeKeeper)
+	app.EvmKeeper.SetHook(evmHooks)
 
 	app.InsuranceKeeper.SetExchangeKeeper(app.ExchangeKeeper)
 
@@ -1303,8 +1317,6 @@ func (app *InjectiveApp) initKeepers(authority string, appOpts servertypes.AppOp
 		GetModuleAccAddresses(),
 		authority,
 	)
-
-	app.ERC20Keeper = erc20keeper.NewKeeper(app.keys[erc20module.StoreKey], app.EvmKeeper, app.BankKeeper, app.AccountKeeper, app.TokenFactoryKeeper, authority)
 
 	app.StakingKeeper.SetHooks(stakingtypes.NewMultiStakingHooks(
 		app.DistrKeeper.Hooks(),
@@ -1416,11 +1428,24 @@ func (app *InjectiveApp) initKeepers(authority string, appOpts servertypes.AppOp
 		app.BankKeeper,
 		app.TokenFactoryKeeper,
 		app.WasmKeeper,
+		app.EvmKeeper,
 		authtypes.NewModuleAddress(tokenfactorytypes.ModuleName).String(),
 		GetModuleAccAddresses(),
 		authority,
 	)
 	app.TokenFactoryKeeper.SetPermissionsKeeper(app.PermissionsKeeper)
+	app.ExchangeKeeper.SetPermissionsKeeper(app.PermissionsKeeper)
+
+	app.ERC20Keeper = erc20keeper.NewKeeper(
+		app.keys[erc20module.StoreKey],
+		app.EvmKeeper,
+		app.BankKeeper,
+		app.AccountKeeper,
+		app.TokenFactoryKeeper,
+		app.DistrKeeper,
+		app.PermissionsKeeper,
+		authority,
+	)
 
 	app.ScopedICAHostKeeper = app.CapabilityKeeper.ScopeToModule(icahosttypes.SubModuleName)
 	app.ICAHostKeeper = icahostkeeper.NewKeeper(
@@ -1468,19 +1493,10 @@ func (app *InjectiveApp) initKeepers(authority string, appOpts servertypes.AppOp
 	wasmStack = wasm.NewIBCHandler(app.WasmKeeper, app.IBCKeeper.ChannelKeeper, app.IBCFeeKeeper)
 	wasmStack = ibcfee.NewIBCMiddleware(wasmStack, app.IBCFeeKeeper)
 
-	// note: oracle app module is initialized earlier for IBC stack
-	oracleModule := oracle.NewAppModule(
-		app.OracleKeeper,
-		app.AccountKeeper,
-		app.BankKeeper,
-		app.GetSubspace(oracletypes.ModuleName),
-	)
-
 	// Create static IBC router, add ibctransfer route, then set and seal it
 	ibcRouter := porttypes.NewRouter().
 		AddRoute(icahosttypes.SubModuleName, icaHostStack).
 		AddRoute(ibctransfertypes.ModuleName, transferStack).
-		AddRoute(oracletypes.ModuleName, oracleModule).
 		AddRoute(wasmtypes.ModuleName, wasmStack)
 
 	// Setting Router will finalize all routes by sealing router
@@ -1492,7 +1508,7 @@ func (app *InjectiveApp) initKeepers(authority string, appOpts servertypes.AppOp
 		AddRoute(govtypes.RouterKey, govv1beta1.ProposalHandler).
 		AddRoute(paramproposal.RouterKey, params.NewParamChangeProposalHandler(app.ParamsKeeper)).
 		AddRoute(ibcclienttypes.RouterKey, ibcclient.NewClientProposalHandler(app.IBCKeeper.ClientKeeper)). //nolint:staticcheck // SA1019 Existing use of deprecated but supported function
-		AddRoute(exchangetypes.RouterKey, exchangekeeper.NewExchangeProposalHandler(app.ExchangeKeeper)).
+		AddRoute(exchangetypes.RouterKey, exchange.NewExchangeProposalHandler(app.ExchangeKeeper)).
 		AddRoute(oracletypes.RouterKey, oracle.NewOracleProposalHandler(app.OracleKeeper)).
 		AddRoute(auctiontypes.RouterKey, auction.NewAuctionProposalHandler(app.AuctionKeeper)).
 		AddRoute(ocrtypes.RouterKey, ocr.NewOcrProposalHandler(app.OcrKeeper)).
@@ -1530,10 +1546,9 @@ func (app *InjectiveApp) initKeepers(authority string, appOpts servertypes.AppOp
 		&app.HyperlaneCoreKeeper,
 		enabledTokens32,
 	)
-	return oracleModule
 }
 
-func (app *InjectiveApp) initManagers(oracleModule oracle.AppModule) {
+func (app *InjectiveApp) initManagers() { //nolint:revive // this is fine
 	// NOTE: we may consider parsing `appOpts` inside module constructors. For the moment
 	// we prefer to be more strict in what arguments the modules expect.
 	// var skipGenesisInvariants = cast.ToBool(appOpts.Get(crisis.FlagSkipGenesisInvariants))
@@ -1572,7 +1587,7 @@ func (app *InjectiveApp) initManagers(oracleModule oracle.AppModule) {
 		//nolint:revive // this is fine
 		auction.NewAppModule(app.AuctionKeeper, app.AccountKeeper, app.BankKeeper, *app.ExchangeKeeper, app.GetSubspace(auctiontypes.ModuleName)),
 		insurance.NewAppModule(app.InsuranceKeeper, app.AccountKeeper, app.BankKeeper, app.GetSubspace(insurancetypes.ModuleName)),
-		oracleModule,
+		oracle.NewAppModule(app.OracleKeeper, app.AccountKeeper, app.BankKeeper, app.GetSubspace(oracletypes.ModuleName)),
 		peggy.NewAppModule(app.PeggyKeeper, app.BankKeeper, app.GetSubspace(peggytypes.ModuleName)),
 		ocr.NewAppModule(app.OcrKeeper, app.AccountKeeper, app.BankKeeper, app.GetSubspace(ocrtypes.ModuleName)),
 		txfees.NewAppModule(app.TxFeesKeeper),

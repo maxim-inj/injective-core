@@ -12,7 +12,7 @@ import (
 	downtimetypes "github.com/InjectiveLabs/injective-core/injective-chain/modules/downtime-detector/types"
 	"github.com/InjectiveLabs/injective-core/injective-chain/modules/exchange/keeper"
 	"github.com/InjectiveLabs/injective-core/injective-chain/modules/exchange/types"
-	v2 "github.com/InjectiveLabs/injective-core/injective-chain/modules/exchange/types/v2"
+	"github.com/InjectiveLabs/injective-core/injective-chain/modules/exchange/types/v2"
 	chaintypes "github.com/InjectiveLabs/injective-core/injective-chain/types"
 )
 
@@ -79,11 +79,11 @@ func (h *BlockHandler) EndBlocker(ctx sdk.Context) {
 	h.handleTriggeringConditionalMarketOrders(ctx, triggeredMarketsAndOrders)
 
 	stakingInfo := h.k.InitialFetchAndUpdateActiveAccountFeeDiscountStakingInfo(ctx)
-	spotVwapData := keeper.NewSpotVwapInfo()
+	spotVwapData := v2.NewSpotVwapInfo()
 
 	// Process spot market orders
 	spotMarketOrderIndicators := h.k.GetAllTransientSpotMarketOrderIndicators(ctx)
-	batchSpotExecutionData := make([]*keeper.SpotBatchExecutionData, len(spotMarketOrderIndicators))
+	batchSpotExecutionData := make([]*v2.SpotBatchExecutionData, len(spotMarketOrderIndicators))
 	batchSpotExecutionDataMux := new(sync.Mutex)
 
 	wg := new(sync.WaitGroup)
@@ -102,7 +102,7 @@ func (h *BlockHandler) EndBlocker(ctx sdk.Context) {
 
 	// Obtain the subaccountIDs in each market where limit matching will apply that have had positions modified prior
 	derivativeLimitOrderMarketDirections := h.k.GetAllTransientDerivativeMarketDirections(ctx, true)
-	modifiedPositionCache := keeper.NewModifiedPositionCache()
+	modifiedPositionCache := v2.NewModifiedPositionCache()
 
 	if len(derivativeLimitOrderMarketDirections) > 0 {
 		wg.Add(1)
@@ -126,7 +126,7 @@ func (h *BlockHandler) EndBlocker(ctx sdk.Context) {
 	// Process derivative market orders
 	derivativeMarketOrderMarketDirections := h.k.GetAllTransientDerivativeMarketDirections(ctx, false)
 
-	batchDerivativeExecutionData := make([]*keeper.DerivativeBatchExecutionData, len(derivativeMarketOrderMarketDirections))
+	batchDerivativeExecutionData := make([]*v2.DerivativeBatchExecutionData, len(derivativeMarketOrderMarketDirections))
 	batchDerivativeExecutionDataMux := new(sync.Mutex)
 
 	wg.Add(len(derivativeMarketOrderMarketDirections))
@@ -154,7 +154,7 @@ func (h *BlockHandler) EndBlocker(ctx sdk.Context) {
 	h.handleTriggeringConditionalLimitOrders(ctx, triggeredMarketsAndOrders)
 
 	// Initialize derivative market funding info
-	derivativeVwapData := keeper.NewDerivativeVwapInfo()
+	derivativeVwapData := v2.NewDerivativeVwapInfo()
 
 	// Persist Derivative market order execution data
 	tradingRewards = h.k.PersistDerivativeMarketOrderExecution(
@@ -165,7 +165,7 @@ func (h *BlockHandler) EndBlocker(ctx sdk.Context) {
 
 	spotLimitOrderMarketDirections := h.k.GetAllTransientMatchedSpotLimitOrderMarkets(ctx)
 
-	batchSpotMatchingExecutionData := make([]*keeper.SpotBatchExecutionData, len(spotLimitOrderMarketDirections))
+	batchSpotMatchingExecutionData := make([]*v2.SpotBatchExecutionData, len(spotLimitOrderMarketDirections))
 	batchSpotMatchingExecutionDataMux := new(sync.Mutex)
 
 	wg.Add(len(spotLimitOrderMarketDirections))
@@ -183,7 +183,7 @@ func (h *BlockHandler) EndBlocker(ctx sdk.Context) {
 	}
 
 	// Process derivative limit orders matching
-	batchDerivativeMatchingExecutionData := make([]*keeper.DerivativeBatchExecutionData, len(derivativeLimitOrderMarketDirections))
+	batchDerivativeMatchingExecutionData := make([]*v2.DerivativeBatchExecutionData, len(derivativeLimitOrderMarketDirections))
 	batchDerivativeMatchingExecutionDataMux := new(sync.Mutex)
 
 	wg.Add(len(derivativeLimitOrderMarketDirections))
@@ -210,6 +210,9 @@ func (h *BlockHandler) EndBlocker(ctx sdk.Context) {
 	tradingRewards = h.k.PersistDerivativeMatchingExecution(ctx, batchDerivativeMatchingExecutionData, derivativeVwapData, tradingRewards)
 
 	/** =========== Stage 5: Update perpetual market funding info =========== */
+
+	atomicVwapData := h.k.GetAllAtomicPerpetualVwap(ctx)
+	derivativeVwapData.MergeAtomicPerpetualVwap(atomicVwapData)
 
 	h.k.PersistVwapInfo(ctx, &spotVwapData, &derivativeVwapData)
 	h.k.PersistPerpetualFundingInfo(ctx, derivativeVwapData)

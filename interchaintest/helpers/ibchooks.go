@@ -2,53 +2,61 @@ package helpers
 
 import (
 	"context"
-	"strings"
 	"testing"
 
+	ibchookskeeper "github.com/cosmos/ibc-apps/modules/ibc-hooks/v8/keeper"
 	"github.com/strangelove-ventures/interchaintest/v8/chain/cosmos"
 	"github.com/stretchr/testify/require"
 )
 
+// GetIBCHooksUserAddress derives the intermediate sender address for IBC hooks.
+// This uses the ibchookskeeper.DeriveIntermediateSender function from the ibc-hooks library,
+// which deterministically derives an address from the channel ID and original sender.
 func GetIBCHooksUserAddress(
 	t *testing.T,
-	ctx context.Context,
+	_ context.Context,
 	chain *cosmos.CosmosChain,
 	channel, uaddr string,
 ) string {
-	// injectived query ibchooks wasm-sender <channelID> <originalSender> [flags]
-	chainNode := chain.Nodes()[0]
-	stdout, _, err := chainNode.ExecQuery(ctx, "ibchooks", "wasm-sender", channel, uaddr)
-	require.NoError(t, err)
+	t.Helper()
 
-	return strings.TrimSpace(string(stdout))
+	bech32Prefix := chain.Config().Bech32Prefix
+	intermediateAddr, err := ibchookskeeper.DeriveIntermediateSender(channel, uaddr, bech32Prefix)
+	require.NoError(t, err, "failed to derive intermediate sender address")
+
+	return intermediateAddr
 }
 
+// GetIBCHookTotalFunds queries the total funds for an address using gRPC.
 func GetIBCHookTotalFunds(t *testing.T, ctx context.Context, chain *cosmos.CosmosChain, contract string, uaddr string) IbcHooksGetTotalFundsResponse {
-	var res IbcHooksGetTotalFundsResponse
+	t.Helper()
 
-	err := chain.QueryContract(ctx, contract,
+	// Query returns the raw contract response without a "data" wrapper
+	var data IbcHooksGetTotalFundsObj
+	WasmQueryContractState(t, ctx, chain, contract,
 		IbcHooksQueryMsg{
 			GetTotalFunds: &IbcHooksGetTotalFundsQuery{
 				Addr: uaddr,
 			},
 		},
-		&res)
+		&data)
 
-	require.NoError(t, err)
-	return res
+	return IbcHooksGetTotalFundsResponse{Data: &data}
 }
 
+// GetIBCHookCount queries the count for an address using gRPC.
 func GetIBCHookCount(t *testing.T, ctx context.Context, chain *cosmos.CosmosChain, contract string, uaddr string) IbcHooksGetCountResponse {
-	var res IbcHooksGetCountResponse
+	t.Helper()
 
-	err := chain.QueryContract(ctx, contract,
+	// Query returns the raw contract response without a "data" wrapper
+	var data IbcHooksGetCountObj
+	WasmQueryContractState(t, ctx, chain, contract,
 		IbcHooksQueryMsg{
 			GetCount: &IbcHooksGetCountQuery{
 				Addr: uaddr,
 			},
 		},
-		&res)
+		&data)
 
-	require.NoError(t, err)
-	return res
+	return IbcHooksGetCountResponse{Data: data}
 }

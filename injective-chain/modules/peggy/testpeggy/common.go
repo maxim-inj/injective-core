@@ -293,6 +293,7 @@ type ValidatorInfo struct {
 	EthAddr  common.Address
 	ConsKey,
 	PubKey ccrypto.PubKey
+	PrivKey ccrypto.PrivKey
 }
 
 func GenerateNewValidatorInfo() ValidatorInfo {
@@ -513,6 +514,7 @@ func CreateTestEnv(t *testing.T) TestInput {
 		nil,
 		scopedOracleKeeper,
 		nil,
+		nil,
 		authority,
 	)
 
@@ -539,6 +541,7 @@ func CreateTestEnv(t *testing.T) TestInput {
 		distKeeper,
 		stakingKeeper,
 		downtimeDetectorKeeper,
+		nil,
 		authority,
 	)
 

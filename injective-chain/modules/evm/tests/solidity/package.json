@@ -18,5 +18,10 @@
   },
   "scripts": {
     "test": "node test-helper.js"
+  },
+  "resolutions": {
+    "@ensdomains/address-encoder": "0.1.7",
+    "crypto-addr-codec": "0.1.7",
+    "ethereum-ens": "0.8.0"
   }
 }

@@ -24,9 +24,24 @@ message MsgBid {
 }
 ```
 
+### Behavior
+
+The `BidAmount` in `Msg/Bid` always represents the **total bid amount** the sender wishes to have as their bid.
+
+The `Msg/Bid` message supports two distinct use cases:
+
+1. **New Bidder**: When a different address than the current highest bidder submits a bid, the full `BidAmount` is transferred from the sender to the auction module. The previous highest bidder is refunded, and the new bid is stored.
+
+2. **Bid Increase**: When the current highest bidder submits another bid, the `BidAmount` must exceed their current bid. Only the **difference** between the new `BidAmount` and their existing bid is transferred from the sender to the auction module (no refund occurs since they're increasing their own bid).
+
+### Validation
+
 This service message is expected to fail if:
 
 - `Round` does not equal the current auction round
 - `BidAmount` does not exceed the previous highest bid amount by at least `min_next_increment_rate` percent.
 
-This service message transfers the `BidAmount` of INJ from the `Sender` to the auction module, stores the bid, and refunds the last bidder's bid amount.
+### State Changes
+
+- The stored bid always reflects the **total bid amount**
+- Events emitted contain the **total bid amount**

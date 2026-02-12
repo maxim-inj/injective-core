@@ -46,6 +46,7 @@ func NewTestSuite(t *testing.T) *TestSuite {
 	})
 
 	require.NoError(t, app.StakingKeeper.SetParams(ctx, TestingStakeParams))
+	app.PeggyKeeper.SetParams(ctx, TestingPeggyParams)
 
 	return &TestSuite{
 		Ctx: ctx,
@@ -144,4 +145,12 @@ func (s *TestSuite) AddAnotherValidator(t *testing.T, valInfo ValidatorInfo) {
 
 	// Run the staking endblocker to ensure valset is correct in state
 	s.EndBlocker(t)
+}
+
+func (s *TestSuite) FundUser(t *testing.T, user sdk.AccAddress, funds sdk.Coins) {
+	t.Helper()
+
+	require.NoError(t, s.App.BankKeeper.MintCoins(s.Ctx, types.ModuleName, funds))
+	s.App.AccountKeeper.NewAccountWithAddress(s.Ctx, user)
+	require.NoError(t, s.App.BankKeeper.SendCoinsFromModuleToAccount(s.Ctx, types.ModuleName, user, funds))
 }

@@ -5,10 +5,10 @@ import (
 	"sort"
 
 	"cosmossdk.io/math"
-
-	v2 "github.com/InjectiveLabs/injective-core/injective-chain/modules/exchange/types/v2"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
+
+	"github.com/InjectiveLabs/injective-core/injective-chain/modules/exchange/types/v2"
 )
 
 func (k *Keeper) InitGenesis(ctx sdk.Context, data v2.GenesisState) {
@@ -17,7 +17,7 @@ func (k *Keeper) InitGenesis(ctx sdk.Context, data v2.GenesisState) {
 	k.SetParams(ctx, data.Params)
 
 	for idx := range data.SpotMarkets {
-		k.SetSpotMarket(ctx, data.SpotMarkets[idx])
+		k.SaveSpotMarket(ctx, data.SpotMarkets[idx])
 	}
 
 	for idx := range data.DerivativeMarkets {
@@ -29,12 +29,12 @@ func (k *Keeper) InitGenesis(ctx sdk.Context, data v2.GenesisState) {
 		marketID := common.HexToHash(orderbook.MarketId)
 		isBuy := orderbook.IsBuySide
 		for _, order := range orderbook.Orders {
-			k.SetNewSpotLimitOrder(ctx, order, marketID, isBuy, common.BytesToHash(order.OrderHash))
+			k.SaveNewSpotLimitOrder(ctx, order, marketID, isBuy, common.BytesToHash(order.OrderHash))
 		}
 	}
 
 	for _, position := range data.Positions {
-		k.SetPosition(ctx, common.HexToHash(position.MarketId), common.HexToHash(position.SubaccountId), position.Position)
+		k.SavePosition(ctx, common.HexToHash(position.MarketId), common.HexToHash(position.SubaccountId), position.Position)
 	}
 
 	for idx := range data.DerivativeOrderbook {
@@ -134,7 +134,7 @@ func (k *Keeper) InitGenesis(ctx sdk.Context, data v2.GenesisState) {
 
 	if data.FeeDiscountSchedule != nil {
 		schedule := data.FeeDiscountSchedule
-		k.SetFeeDiscountSchedule(ctx, schedule)
+		k.SaveFeeDiscountSchedule(ctx, schedule)
 
 		k.SetFeeDiscountMarketQualificationForAllQualifyingMarkets(ctx, schedule)
 		k.SetIsFirstFeeCycleFinished(ctx, data.IsFirstFeeCycleFinished)
@@ -200,11 +200,14 @@ func (k *Keeper) InitGenesis(ctx sdk.Context, data v2.GenesisState) {
 	}
 
 	for _, market := range data.BinaryOptionsMarkets {
-		k.SetBinaryOptionsMarket(ctx, market)
+		k.SaveBinaryOptionsMarket(ctx, market)
+		k.EmitEvent(ctx, &v2.EventBinaryOptionsMarketUpdate{
+			Market: *market,
+		})
 	}
 
 	for _, marketId := range data.BinaryOptionsMarketIdsScheduledForSettlement {
-		k.scheduleBinaryOptionsMarketForSettlement(ctx, common.HexToHash(marketId))
+		k.ScheduleBinaryOptionsMarketForSettlement(ctx, common.HexToHash(marketId))
 	}
 
 	for _, denomDecimal := range data.AuctionExchangeTransferDenomDecimals {
@@ -254,18 +257,23 @@ func (k *Keeper) InitGenesis(ctx sdk.Context, data v2.GenesisState) {
 
 	for _, auth := range data.GrantAuthorizations {
 		granter := sdk.MustAccAddressFromBech32(auth.Granter)
-		k.setTotalGrantAmount(ctx, granter, auth.TotalGrantAmount)
-		k.setLastValidGrantDelegationCheckTime(ctx, granter.String(), auth.LastDelegationsCheckedTime)
+		k.SetTotalGrantAmount(ctx, granter, auth.TotalGrantAmount)
+		k.SetLastValidGrantDelegationCheckTime(ctx, granter.String(), auth.LastDelegationsCheckedTime)
 
 		for _, grant := range auth.Grants {
 			grantee := sdk.MustAccAddressFromBech32(grant.Grantee)
-			k.setGrantAuthorization(ctx, granter, grantee, grant.Amount)
+			k.SetGrantAuthorization(ctx, granter, grantee, grant.Amount)
 		}
 	}
 
 	for _, grant := range data.ActiveGrants {
 		grantee := sdk.MustAccAddressFromBech32(grant.Grantee)
-		k.setActiveGrant(ctx, grantee, grant.ActiveGrant)
+		k.SetActiveGrant(ctx, grantee, grant.ActiveGrant)
+		k.EmitEvent(ctx, &v2.EventGrantActivation{
+			Grantee: grantee.String(),
+			Granter: grant.ActiveGrant.Granter,
+			Amount:  grant.ActiveGrant.Amount,
+		})
 	}
 
 	for _, denomMinNotional := range data.DenomMinNotionals {

@@ -5,11 +5,11 @@ import (
 	"math/big"
 
 	"cosmossdk.io/errors"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/ethereum/go-ethereum/common"
-
+	sdkmath "cosmossdk.io/math"
 	"github.com/InjectiveLabs/metrics"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	distrtypes "github.com/cosmos/cosmos-sdk/x/distribution/types"
+	"github.com/ethereum/go-ethereum/common"
 
 	"github.com/InjectiveLabs/injective-core/injective-chain/modules/peggy/types"
 )
@@ -71,9 +71,10 @@ func (h AttestationHandler) handleDepositClaim(ctx sdk.Context, claim *types.Msg
 
 	rateLimit := h.keeper.GetRateLimit(ctx, tokenContract)
 	withRateLimit := rateLimit != nil
-	currentMintAmount := h.keeper.GetMintAmountERC20(ctx, tokenContract)
 
 	if !isCosmosOriginated {
+		var currentMintAmount sdkmath.Int
+
 		// Check if supply overflows with claim amount
 		currentSupply := h.bankKeeper.GetSupply(ctx, denom)
 		newSupply := new(big.Int).Add(currentSupply.Amount.BigInt(), claim.Amount.BigInt())
@@ -84,8 +85,9 @@ func (h AttestationHandler) handleDepositClaim(ctx sdk.Context, claim *types.Msg
 
 		// check absolute limit
 		if withRateLimit {
-			absoluteLimit := rateLimit.AbsoluteMintLimit.BigInt()
-			if remaining := absoluteLimit.Sub(absoluteLimit, currentMintAmount); remaining.Cmp(claim.Amount.BigInt()) < 0 {
+			currentMintAmount = h.keeper.GetMintAmountERC20(ctx, tokenContract)
+			absoluteLimit := rateLimit.AbsoluteMintLimit
+			if remaining := absoluteLimit.Sub(currentMintAmount); remaining.LT(claim.Amount) {
 				return ErrAbsoluteMintLimitOverflow
 			}
 		}
@@ -97,7 +99,7 @@ func (h AttestationHandler) handleDepositClaim(ctx sdk.Context, claim *types.Msg
 
 		// track new mint
 		if withRateLimit {
-			newAmount := currentMintAmount.Add(currentMintAmount, claim.Amount.BigInt())
+			newAmount := currentMintAmount.Add(claim.Amount)
 			h.keeper.SetMintAmountERC20(ctx, tokenContract, newAmount)
 		}
 	}

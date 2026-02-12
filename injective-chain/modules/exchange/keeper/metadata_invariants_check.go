@@ -4,9 +4,7 @@ import (
 	"fmt"
 
 	"cosmossdk.io/math"
-	"cosmossdk.io/store/prefix"
-	"github.com/InjectiveLabs/injective-core/injective-chain/modules/exchange/types"
-	v2 "github.com/InjectiveLabs/injective-core/injective-chain/modules/exchange/types/v2"
+	"github.com/InjectiveLabs/injective-core/injective-chain/modules/exchange/types/v2"
 	"github.com/InjectiveLabs/metrics"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
@@ -18,12 +16,6 @@ type MetadataInvariantCheckConfig struct {
 }
 
 type MetadataInvariantCheckOption func(*MetadataInvariantCheckConfig)
-
-func CheckSubaccountsBalanceOption(shouldCheck bool) MetadataInvariantCheckOption {
-	return func(config *MetadataInvariantCheckConfig) {
-		config.ShouldCheckSubaccountsBalance = shouldCheck
-	}
-}
 
 // IsMetadataInvariantValid should only be used by tests to verify data integrity
 func (k *Keeper) IsMetadataInvariantValid(ctx sdk.Context, options ...MetadataInvariantCheckOption) bool {
@@ -117,42 +109,43 @@ func (k *Keeper) getAllSubaccountOrderbookMetadata(
 	ctx, doneFn := metrics.ReportFuncCallAndTimingSdkCtx(ctx, k.svcTags)
 	defer doneFn()
 
-	store := k.getStore(ctx)
-
 	// marketID => isBuy => subaccountID => metadata
 	metadatas := make(map[common.Hash]map[bool]map[common.Hash]*v2.SubaccountOrderbookMetadata)
+	derivativeMarkets := k.GetAllDerivativeMarkets(ctx)
+	binaryOptionsMarkets := k.GetAllBinaryOptionsMarkets(ctx)
+	markets := make([]v2.DerivativeMarketI, 0, len(derivativeMarkets)+len(binaryOptionsMarkets))
 
-	markets := k.GetAllDerivativeAndBinaryOptionsMarkets(ctx)
+	for _, m := range derivativeMarkets {
+		markets = append(markets, m)
+	}
+
+	for _, m := range binaryOptionsMarkets {
+		markets = append(markets, m)
+	}
+
 	for _, market := range markets {
 		marketID := market.MarketID()
-		prefixKey := types.SubaccountOrderbookMetadataPrefix
-		prefixKey = append(prefixKey, marketID.Bytes()...)
+		k.IterateSubaccountOrderbookMetadataForMarket(
+			ctx,
+			marketID,
+			func(subaccountID common.Hash, isBuy bool, metadata *v2.SubaccountOrderbookMetadata) (stop bool) {
+				if metadata.GetOrderSideCount() == 0 {
+					return false
+				}
 
-		subaccountStore := prefix.NewStore(store, prefixKey)
-		iterator := subaccountStore.Iterator(nil, nil)
+				if _, ok := metadatas[marketID]; !ok {
+					metadatas[marketID] = make(map[bool]map[common.Hash]*v2.SubaccountOrderbookMetadata)
+				}
 
-		for ; iterator.Valid(); iterator.Next() {
-			var metadata v2.SubaccountOrderbookMetadata
-			bz := iterator.Value()
-			k.cdc.MustUnmarshal(bz, &metadata)
-			if metadata.GetOrderSideCount() == 0 {
-				continue
-			}
-			subaccountID := common.BytesToHash(iterator.Key()[:common.HashLength])
-			isBuy := iterator.Key()[common.HashLength] == types.TrueByte
-			var ok bool
+				if _, ok := metadatas[marketID][isBuy]; !ok {
+					metadatas[marketID][isBuy] = make(map[common.Hash]*v2.SubaccountOrderbookMetadata)
+				}
 
-			if _, ok = metadatas[marketID]; !ok {
-				metadatas[marketID] = make(map[bool]map[common.Hash]*v2.SubaccountOrderbookMetadata)
-			}
-			if _, ok = metadatas[marketID][isBuy]; !ok {
-				metadatas[marketID][isBuy] = make(map[common.Hash]*v2.SubaccountOrderbookMetadata)
-			}
+				metadatas[marketID][isBuy][subaccountID] = metadata
 
-			metadatas[marketID][isBuy][subaccountID] = &metadata
-
-		}
-		iterator.Close()
+				return false
+			},
+		)
 	}
 
 	return metadatas
@@ -212,36 +205,22 @@ func (k *Keeper) getAllSubaccountMetadataFromSubaccountOrders(
 	ctx, doneFn := metrics.ReportFuncCallAndTimingSdkCtx(ctx, k.svcTags)
 	defer doneFn()
 
-	store := k.getStore(ctx)
-	prefixKey := types.SubaccountOrderPrefix
-	ordersStore := prefix.NewStore(store, prefixKey)
-	iterator := ordersStore.Iterator(nil, nil)
-	defer iterator.Close()
-
 	// marketID => isBuy => subaccountID => metadata
 	metadatas := make(map[common.Hash]map[bool]map[common.Hash]*v2.SubaccountOrderbookMetadata)
-
-	for ; iterator.Valid(); iterator.Next() {
-		var order v2.SubaccountOrder
-		bz := iterator.Value()
-		k.cdc.MustUnmarshal(bz, &order)
-		key := iterator.Key()
-		marketID := common.BytesToHash(key[:common.HashLength])
-		subaccountID := common.BytesToHash(key[common.HashLength : +2*common.HashLength])
-		isBuy := key[2*common.HashLength] == types.TrueByte
-
-		var metadata *v2.SubaccountOrderbookMetadata
-		var ok bool
-		if _, ok = metadatas[marketID]; !ok {
+	k.IterateSubaccountOrders(ctx, func(marketID, subaccountID common.Hash, isBuy bool, order *v2.SubaccountOrder) (stop bool) {
+		if _, ok := metadatas[marketID]; !ok {
 			metadatas[marketID] = make(map[bool]map[common.Hash]*v2.SubaccountOrderbookMetadata)
 		}
-		if _, ok = metadatas[marketID][isBuy]; !ok {
+		if _, ok := metadatas[marketID][isBuy]; !ok {
 			metadatas[marketID][isBuy] = make(map[common.Hash]*v2.SubaccountOrderbookMetadata)
 		}
-		if metadata, ok = metadatas[marketID][isBuy][subaccountID]; !ok {
+
+		metadata, ok := metadatas[marketID][isBuy][subaccountID]
+		if !ok {
 			metadata = v2.NewSubaccountOrderbookMetadata()
 			metadatas[marketID][isBuy][subaccountID] = metadata
 		}
+
 		if order.IsVanilla() {
 			metadata.VanillaLimitOrderCount += 1
 			metadata.AggregateVanillaQuantity = metadata.AggregateVanillaQuantity.Add(order.Quantity)
@@ -249,7 +228,31 @@ func (k *Keeper) getAllSubaccountMetadataFromSubaccountOrders(
 			metadata.ReduceOnlyLimitOrderCount += 1
 			metadata.AggregateReduceOnlyQuantity = metadata.AggregateReduceOnlyQuantity.Add(order.Quantity)
 		}
-	}
+
+		return false
+	})
 
 	return metadatas
+}
+
+// IsMarketAggregateVolumeValid should only be used by tests to verify data integrity
+func (k *Keeper) IsMarketAggregateVolumeValid(ctx sdk.Context) bool {
+	aggregateVolumesList := k.GetAllMarketAggregateVolumes(ctx)
+	aggregateVolumes := make(map[common.Hash]v2.VolumeRecord)
+
+	for _, volume := range aggregateVolumesList {
+		aggregateVolumes[common.HexToHash(volume.MarketId)] = volume.Volume
+	}
+
+	computedVolumes := k.GetAllComputedMarketAggregateVolumes(ctx)
+
+	if diff := deep.Equal(aggregateVolumes, computedVolumes); diff != nil {
+		_, _ = fmt.Println("❌ Market aggregated volume doesnt equal volumes derived from subaccount aggregate volumes")
+		_, _ = fmt.Println("📢 DIFF: ", diff)
+		_, _ = fmt.Println("1️⃣ Market volumes", aggregateVolumes)
+		_, _ = fmt.Println("2️⃣ Volumes from subaccount volumes", computedVolumes)
+
+		return false
+	}
+	return true
 }

@@ -3,6 +3,7 @@ package types
 import (
 	context "context"
 
+	sdkmath "cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/x/auth/ante"
 	"github.com/cosmos/cosmos-sdk/x/bank/types"
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
@@ -11,6 +12,8 @@ import (
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 
+	tftypes "github.com/InjectiveLabs/injective-core/injective-chain/modules/tokenfactory/types"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 )
@@ -30,6 +33,7 @@ type AccountKeeper interface {
 type BankKeeper interface {
 	authtypes.BankKeeper
 	GetBalance(ctx context.Context, addr sdk.AccAddress, denom string) sdk.Coin
+	SpendableCoin(ctx context.Context, addr sdk.AccAddress, denom string) sdk.Coin
 	SendCoinsFromModuleToAccount(ctx context.Context, senderModule string, recipientAddr sdk.AccAddress, amt sdk.Coins) error
 	SendCoinsFromModuleToAccountVirtual(ctx context.Context, senderModule string, recipientAddr sdk.AccAddress, amt sdk.Coins) error
 	SendCoinsFromAccountToModuleVirtual(ctx context.Context, senderAddr sdk.AccAddress, recipientModule string, amt sdk.Coins) error
@@ -48,15 +52,21 @@ type StakingKeeper interface {
 	GetValidatorByConsAddr(ctx context.Context, consAddr sdk.ConsAddress) (validator stakingtypes.Validator, err error)
 }
 
-type CommunityPoolKeeper interface {
-	FundCommunityPool(ctx context.Context, amount sdk.Coins, sender sdk.AccAddress) error
+type ERC20Keeper interface {
+	MintERC20(c context.Context, erc20Addr common.Address, minter sdk.AccAddress, amt sdkmath.Int) error
+	BurnERC20(c context.Context, erc20Addr common.Address, burner sdk.AccAddress, amt sdkmath.Int) error
+}
+
+type TFMsgServer interface {
+	Mint(goCtx context.Context, msg *tftypes.MsgMint) (*tftypes.MsgMintResponse, error)
+	Burn(goCtx context.Context, msg *tftypes.MsgBurn) (*tftypes.MsgBurnResponse, error)
 }
 
 // Event Hooks
 // These can be utilized to customize evm transaction processing.
 
-// EvmHooks event hooks for evm tx processing
-type EvmHooks interface {
+// EvmHook event hooks for evm tx processing
+type EvmHook interface {
 	// Must be called after tx is processed successfully, if return an error, the whole transaction is reverted.
 	PostTxProcessing(ctx sdk.Context, msg *core.Message, receipt *ethtypes.Receipt) error
 }

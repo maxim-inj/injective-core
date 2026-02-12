@@ -8,6 +8,7 @@ import (
 	"cosmossdk.io/x/feegrant"
 	feegrantkeeper "cosmossdk.io/x/feegrant/keeper"
 	wasmvmtypes "github.com/CosmWasm/wasmvm/v2/types"
+	"github.com/InjectiveLabs/injective-core/injective-chain/modules/exchange/keeper/utils"
 	cdctypes "github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
@@ -374,7 +375,7 @@ func (qp QueryPlugin) HandleExchangeQuery(ctx sdk.Context, queryData json.RawMes
 		if hasProcessedFullAmount {
 			ordersToCancelV1 := make([]*exchangetypes.TrimmedSpotLimitOrder, 0, len(ordersToCancel))
 			for _, order := range ordersToCancel {
-				ordersToCancelV1 = append(ordersToCancelV1, exchangekeeper.NewV1TrimmedSpotLimitOrderFromV2(market, order))
+				ordersToCancelV1 = append(ordersToCancelV1, utils.NewV1TrimmedSpotLimitOrderFromV2(market, order))
 			}
 
 			return json.Marshal(exchangetypes.QueryTraderSpotOrdersResponse{
@@ -395,7 +396,7 @@ func (qp QueryPlugin) HandleExchangeQuery(ctx sdk.Context, queryData json.RawMes
 			referencePrice = &referencePriceChainFormat
 		}
 
-		ordersToCancel, hasProcessedFullAmount := exchangekeeper.GetDerivativeOrdersToCancelUpToAmount(
+		ordersToCancel, hasProcessedFullAmount := exchangev2.GetDerivativeOrdersToCancelUpToAmount(
 			market,
 			traderOrders,
 			exchangev2.CancellationStrategy(query.TraderDerivativeOrdersToCancelUpToAmountRequest.Strategy),
@@ -406,7 +407,7 @@ func (qp QueryPlugin) HandleExchangeQuery(ctx sdk.Context, queryData json.RawMes
 		if hasProcessedFullAmount {
 			ordersToCancelV1 := make([]*exchangetypes.TrimmedDerivativeLimitOrder, 0, len(ordersToCancel))
 			for _, order := range ordersToCancel {
-				orderV1 := exchangekeeper.NewV1TrimmedDerivativeLimitOrderFromV2(market, *order)
+				orderV1 := utils.NewV1TrimmedDerivativeLimitOrderFromV2(market, *order)
 				ordersToCancelV1 = append(ordersToCancelV1, &orderV1)
 			}
 

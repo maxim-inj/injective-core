@@ -660,7 +660,7 @@ func (k *Keeper) withdrawRedemption(ctx sdk.Context, schedule *types.RedemptionS
 	if redeemCoin.Amount.IsPositive() {
 		err = k.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleName, redeemer, sdk.Coins{redeemCoin})
 		if err != nil {
-			// Note: error can happen when redeemCoin is invalid coin or module does not have enough balance
+			// Note: error can happen when redeemCoin is invalid coin (or send failed due to permissions) or module does not have enough balance
 			metrics.ReportFuncError(k.svcTags)
 			return nil
 		}

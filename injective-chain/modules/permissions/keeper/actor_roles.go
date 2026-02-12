@@ -177,7 +177,6 @@ func (k Keeper) IterateActorRoles(ctx sdk.Context, denom string, cb func(actor s
 func (k Keeper) HasRoleName(ctx sdk.Context, denom, role string) bool {
 	rolesStore := k.getRoleNamesStore(ctx, denom)
 	return rolesStore.Has([]byte(role))
-
 }
 
 // HasRoleID returns true if the role ID exists

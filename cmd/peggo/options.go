@@ -233,6 +233,7 @@ type Config struct {
 	cosmosChainID   *string
 	cosmosGRPC      *string
 	tendermintRPC   *string
+	healthCheckPort *int
 	cosmosGasPrices *string
 
 	// Cosmos Key Management
@@ -296,6 +297,13 @@ func initConfig(cmd *cli.Cmd) Config {
 		Name:   "tendermint-rpc",
 		Desc:   "Tendermint RPC endpoint",
 		EnvVar: "PEGGO_TENDERMINT_RPC",
+	})
+
+	cfg.healthCheckPort = cmd.Int(cli.IntOpt{
+		Name:   "health-check",
+		Desc:   "Port number on which to run the health check HTTP server",
+		EnvVar: "PEGGO_HEALTH_CHECK_PORT",
+		Value:  7070,
 	})
 
 	cfg.cosmosGasPrices = cmd.String(cli.StringOpt{

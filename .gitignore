@@ -16,8 +16,6 @@ exclusive.lock
 .DS_Store
 *.swp
 *.swo
-.vscode
-.idea
 
 # Build
 build
@@ -25,7 +23,9 @@ cache
 out
 
 # IDE
-.idea/
+.vscode
+.idea
+.cursor
 *.iml
 .root/
 *.sublime-project

@@ -42,7 +42,7 @@ docker exec -it [DOCKER_PS_ID] geth attach http://localhost:8989
 dbrajovic@injectivelabs geth % hyperlane registry init
 Hyperlane CLI
 Creating a new chain config
-? Using rpc url as http://localhost:8545 from JSON RPC provider, is this correct? yes
+? Using rpc url as http://localhost:8989 from JSON RPC provider, is this correct? yes
 ? Enter chain name (one word, lower case) gethlocal
 ? Enter chain display name Gethlocal
 ? Using chain id as 1337 from JSON RPC provider, is this correct? yes
@@ -167,7 +167,7 @@ hyperlane warp apply --config updated-warp-config.yaml --warp ~/.hyperlane/deplo
 
 ## Setting up Injective
 
-1. Setup Injective locally: `./injective-core/setup.sh`
+1. Setup Injective locally: `./injective-core/setup.sh && ./injective-core/injectived.sh`
 2. Add your Ethereum private key: `injectived keys unsafe-import-eth-key hyperlane 0x0f95f8340bcb02cd650fd730bfde4933d0b0d2bb8816c61c6fc974fb277b57fb`
 3. Deploy Hyperlane on Injective: `./deploy_injective.sh`
 4. Start the Hyperlane Validator process: `./start_validator.sh`

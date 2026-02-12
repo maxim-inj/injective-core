@@ -5,6 +5,7 @@ import (
 	"math/big"
 	"strings"
 
+	"github.com/InjectiveLabs/coretracer"
 	"github.com/ethereum/go-ethereum"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
@@ -12,8 +13,6 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/pkg/errors"
 	log "github.com/xlab/suplog"
-
-	"github.com/InjectiveLabs/metrics"
 
 	"github.com/InjectiveLabs/injective-core/peggo/orchestrator/ethereum/provider"
 	"github.com/InjectiveLabs/injective-core/peggo/orchestrator/ethereum/util"
@@ -31,9 +30,7 @@ func NewEthCommitter(
 ) (EVMCommitter, error) {
 	committer := &ethCommitter{
 		committerOpts: defaultOptions(),
-		svcTags: metrics.Tags{
-			"module": "eth_committer",
-		},
+		svcTags:       coretracer.NewTag("module", "eth_committer"),
 
 		ethGasPriceAdjustment: ethGasPriceAdjustment,
 		ethMaxGasPrice:        ParseMaxGasPrice(ethMaxGasPrice),
@@ -66,7 +63,7 @@ type ethCommitter struct {
 	evmProvider           provider.EVMProviderWithRet
 	nonceCache            util.NonceCache
 
-	svcTags metrics.Tags
+	svcTags coretracer.Tags
 }
 
 func (e *ethCommitter) FromAddress() common.Address {
@@ -82,9 +79,7 @@ func (e *ethCommitter) SendTx(
 	recipient common.Address,
 	txData []byte,
 ) (txHash common.Hash, err error) {
-	metrics.ReportFuncCall(e.svcTags)
-	doneFn := metrics.ReportFuncTiming(e.svcTags)
-	defer doneFn()
+	defer coretracer.Trace(&ctx, e.svcTags)()
 
 	opts := &bind.TransactOpts{
 		From:   e.fromAddress,
@@ -98,7 +93,7 @@ func (e *ethCommitter) SendTx(
 	// Figure out the gas price values
 	suggestedGasPrice, err := e.evmProvider.SuggestGasPrice(opts.Context)
 	if err != nil {
-		metrics.ReportFuncError(e.svcTags)
+		coretracer.TraceError(ctx, err)
 		return common.Hash{}, errors.Errorf("failed to suggest gas price: %v", err)
 	}
 
@@ -114,7 +109,9 @@ func (e *ethCommitter) SendTx(
 	//The gas price should be less than max gas price
 	maxGasPrice := big.NewInt(int64(e.ethMaxGasPrice))
 	if opts.GasPrice.Cmp(maxGasPrice) > 0 {
-		return common.Hash{}, errors.Errorf("Suggested gas price %v is greater than max gas price %v", opts.GasPrice.Int64(), maxGasPrice.Int64())
+		err = errors.Errorf("Suggested gas price %v is greater than max gas price %v", opts.GasPrice.Int64(), maxGasPrice.Int64())
+		coretracer.TraceError(ctx, err)
+		return common.Hash{}, err
 	}
 
 	// estimate gas limit
@@ -128,6 +125,7 @@ func (e *ethCommitter) SendTx(
 
 	gasLimit, err := e.evmProvider.EstimateGas(opts.Context, msg)
 	if err != nil {
+		coretracer.TraceError(ctx, err)
 		return common.Hash{}, errors.Wrap(err, "failed to estimate gas")
 	}
 
@@ -215,7 +213,7 @@ func (e *ethCommitter) SendTx(
 			}
 		}
 	}); err != nil {
-		metrics.ReportFuncError(e.svcTags)
+		coretracer.TraceError(ctx, err)
 
 		log.WithError(err).Errorln("SendTx serialize failed")
 

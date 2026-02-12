@@ -1,0 +1,243 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "subscribe_request.schema.json",
+  "title": "Subscribe Request",
+  "description": "JSON-RPC 2.0 request to subscribe to chain stream events",
+  "type": "object",
+  "required": ["jsonrpc", "id", "method", "params"],
+  "properties": {
+    "jsonrpc": {
+      "type": "string",
+      "const": "2.0",
+      "description": "JSON-RPC protocol version"
+    },
+    "id": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Request identifier. Responses for this subscription will use the same ID."
+    },
+    "method": {
+      "type": "string",
+      "const": "subscribe",
+      "description": "RPC method name"
+    },
+    "params": {
+      "type": "object",
+      "required": ["req"],
+      "properties": {
+        "req": {
+          "$ref": "#/$defs/subscribeRequest"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "subscribeRequest": {
+      "type": "object",
+      "required": ["subscription_id", "filter"],
+      "properties": {
+        "subscription_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Client-provided unique identifier for this subscription. Used for unsubscribing."
+        },
+        "filter": {
+          "$ref": "#/$defs/streamFilter"
+        }
+      },
+      "additionalProperties": false
+    },
+    "streamFilter": {
+      "type": "object",
+      "description": "At least one filter must be specified",
+      "minProperties": 1,
+      "properties": {
+        "bank_balances_filter": {
+          "$ref": "#/$defs/bankBalancesFilter"
+        },
+        "subaccount_deposits_filter": {
+          "$ref": "#/$defs/subaccountDepositsFilter"
+        },
+        "spot_trades_filter": {
+          "$ref": "#/$defs/tradesFilter"
+        },
+        "derivative_trades_filter": {
+          "$ref": "#/$defs/tradesFilter"
+        },
+        "spot_orders_filter": {
+          "$ref": "#/$defs/ordersFilter"
+        },
+        "derivative_orders_filter": {
+          "$ref": "#/$defs/ordersFilter"
+        },
+        "spot_orderbooks_filter": {
+          "$ref": "#/$defs/orderbookFilter"
+        },
+        "derivative_orderbooks_filter": {
+          "$ref": "#/$defs/orderbookFilter"
+        },
+        "positions_filter": {
+          "$ref": "#/$defs/positionsFilter"
+        },
+        "oracle_price_filter": {
+          "$ref": "#/$defs/oraclePriceFilter"
+        },
+        "order_failures_filter": {
+          "$ref": "#/$defs/orderFailuresFilter"
+        },
+        "conditional_order_trigger_failures_filter": {
+          "$ref": "#/$defs/conditionalOrderTriggerFailuresFilter"
+        }
+      },
+      "additionalProperties": false
+    },
+    "bankBalancesFilter": {
+      "type": "object",
+      "properties": {
+        "accounts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of account addresses to filter. Use '*' for all accounts."
+        }
+      },
+      "additionalProperties": false
+    },
+    "subaccountDepositsFilter": {
+      "type": "object",
+      "properties": {
+        "subaccount_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of subaccount IDs to filter. Use '*' for all subaccounts."
+        }
+      },
+      "additionalProperties": false
+    },
+    "tradesFilter": {
+      "type": "object",
+      "properties": {
+        "market_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of market IDs to filter. Use '*' for all markets."
+        },
+        "subaccount_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of subaccount IDs to filter. Use '*' for all subaccounts."
+        }
+      },
+      "additionalProperties": false
+    },
+    "ordersFilter": {
+      "type": "object",
+      "properties": {
+        "market_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of market IDs to filter. Use '*' for all markets."
+        },
+        "subaccount_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of subaccount IDs to filter. Use '*' for all subaccounts."
+        }
+      },
+      "additionalProperties": false
+    },
+    "orderbookFilter": {
+      "type": "object",
+      "properties": {
+        "market_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of market IDs to filter. Use '*' for all markets."
+        }
+      },
+      "additionalProperties": false
+    },
+    "positionsFilter": {
+      "type": "object",
+      "properties": {
+        "subaccount_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of subaccount IDs to filter. Use '*' for all subaccounts."
+        },
+        "market_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of market IDs to filter. Use '*' for all markets."
+        }
+      },
+      "additionalProperties": false
+    },
+    "oraclePriceFilter": {
+      "type": "object",
+      "properties": {
+        "symbol": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of oracle symbols to filter. Use '*' for all symbols."
+        }
+      },
+      "additionalProperties": false
+    },
+    "orderFailuresFilter": {
+      "type": "object",
+      "properties": {
+        "accounts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of account addresses to filter. Use '*' for all accounts."
+        }
+      },
+      "additionalProperties": false
+    },
+    "conditionalOrderTriggerFailuresFilter": {
+      "type": "object",
+      "properties": {
+        "subaccount_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of subaccount IDs to filter. Use '*' for all subaccounts."
+        },
+        "market_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of market IDs to filter. Use '*' for all markets."
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}
+

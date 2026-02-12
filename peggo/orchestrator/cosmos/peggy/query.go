@@ -3,12 +3,12 @@ package peggy
 import (
 	"context"
 
+	"github.com/InjectiveLabs/coretracer"
 	cosmostypes "github.com/cosmos/cosmos-sdk/types"
 	gethcommon "github.com/ethereum/go-ethereum/common"
 	"github.com/pkg/errors"
 
 	peggytypes "github.com/InjectiveLabs/injective-core/injective-chain/modules/peggy/types"
-	"github.com/InjectiveLabs/metrics"
 )
 
 var ErrNotFound = errors.New("not found")
@@ -28,36 +28,36 @@ type QueryClient interface {
 	LatestTransactionBatches(ctx context.Context) ([]*peggytypes.OutgoingTxBatch, error)
 	UnbatchedTokensWithFees(ctx context.Context) ([]*peggytypes.BatchFees, error)
 	TransactionBatchSignatures(ctx context.Context, nonce uint64, tokenContract gethcommon.Address) ([]*peggytypes.MsgConfirmBatch, error)
+
+	ModuleState(ctx context.Context) (*peggytypes.GenesisState, error)
 }
 
 type queryClient struct {
 	peggytypes.QueryClient
 
-	svcTags metrics.Tags
+	svcTags coretracer.Tags
 }
 
 func NewQueryClient(client peggytypes.QueryClient) QueryClient {
 	return queryClient{
 		QueryClient: client,
-		svcTags:     metrics.Tags{"svc": "peggy_query"},
+		svcTags:     coretracer.NewTag("svc", "peggy_query_client"),
 	}
 }
 
 func (c queryClient) ValsetAt(ctx context.Context, nonce uint64) (*peggytypes.Valset, error) {
-	metrics.ReportFuncCall(c.svcTags)
-	doneFn := metrics.ReportFuncTiming(c.svcTags)
-	defer doneFn()
+	defer coretracer.Trace(&ctx, c.svcTags)()
 
 	req := &peggytypes.QueryValsetRequestRequest{Nonce: nonce}
 
 	resp, err := c.QueryClient.ValsetRequest(ctx, req)
 	if err != nil {
-		metrics.ReportFuncError(c.svcTags)
+		coretracer.TraceError(ctx, err)
 		return nil, errors.Wrap(err, "failed to query ValsetRequest from client")
 	}
 
 	if resp == nil {
-		metrics.ReportFuncError(c.svcTags)
+		coretracer.TraceError(ctx, ErrNotFound)
 		return nil, ErrNotFound
 	}
 
@@ -65,18 +65,16 @@ func (c queryClient) ValsetAt(ctx context.Context, nonce uint64) (*peggytypes.Va
 }
 
 func (c queryClient) CurrentValset(ctx context.Context) (*peggytypes.Valset, error) {
-	metrics.ReportFuncCall(c.svcTags)
-	doneFn := metrics.ReportFuncTiming(c.svcTags)
-	defer doneFn()
+	defer coretracer.Trace(&ctx, c.svcTags)()
 
 	resp, err := c.QueryClient.CurrentValset(ctx, &peggytypes.QueryCurrentValsetRequest{})
 	if err != nil {
-		metrics.ReportFuncError(c.svcTags)
+		coretracer.TraceError(ctx, err)
 		return nil, errors.Wrap(err, "failed to query CurrentValset from client")
 	}
 
 	if resp == nil {
-		metrics.ReportFuncError(c.svcTags)
+		coretracer.TraceError(ctx, ErrNotFound)
 		return nil, ErrNotFound
 	}
 
@@ -84,9 +82,7 @@ func (c queryClient) CurrentValset(ctx context.Context) (*peggytypes.Valset, err
 }
 
 func (c queryClient) OldestUnsignedValsets(ctx context.Context, valAccountAddress cosmostypes.AccAddress) ([]*peggytypes.Valset, error) {
-	metrics.ReportFuncCall(c.svcTags)
-	doneFn := metrics.ReportFuncTiming(c.svcTags)
-	defer doneFn()
+	defer coretracer.Trace(&ctx, c.svcTags)()
 
 	req := &peggytypes.QueryLastPendingValsetRequestByAddrRequest{
 		Address: valAccountAddress.String(),
@@ -94,12 +90,12 @@ func (c queryClient) OldestUnsignedValsets(ctx context.Context, valAccountAddres
 
 	resp, err := c.QueryClient.LastPendingValsetRequestByAddr(ctx, req)
 	if err != nil {
-		metrics.ReportFuncError(c.svcTags)
+		coretracer.TraceError(ctx, err)
 		return nil, errors.Wrap(err, "failed to query LastPendingValsetRequestByAddr from client")
 	}
 
 	if resp == nil {
-		metrics.ReportFuncError(c.svcTags)
+		coretracer.TraceError(ctx, ErrNotFound)
 		return nil, ErrNotFound
 	}
 
@@ -107,18 +103,16 @@ func (c queryClient) OldestUnsignedValsets(ctx context.Context, valAccountAddres
 }
 
 func (c queryClient) LatestValsets(ctx context.Context) ([]*peggytypes.Valset, error) {
-	metrics.ReportFuncCall(c.svcTags)
-	doneFn := metrics.ReportFuncTiming(c.svcTags)
-	defer doneFn()
+	defer coretracer.Trace(&ctx, c.svcTags)()
 
 	resp, err := c.QueryClient.LastValsetRequests(ctx, &peggytypes.QueryLastValsetRequestsRequest{})
 	if err != nil {
-		metrics.ReportFuncError(c.svcTags)
+		coretracer.TraceError(ctx, err)
 		return nil, errors.Wrap(err, "failed to query LastValsetRequests from daemon")
 	}
 
 	if resp == nil {
-		metrics.ReportFuncError(c.svcTags)
+		coretracer.TraceError(ctx, ErrNotFound)
 		return nil, ErrNotFound
 	}
 
@@ -126,18 +120,16 @@ func (c queryClient) LatestValsets(ctx context.Context) ([]*peggytypes.Valset, e
 }
 
 func (c queryClient) AllValsetConfirms(ctx context.Context, nonce uint64) ([]*peggytypes.MsgValsetConfirm, error) {
-	metrics.ReportFuncCall(c.svcTags)
-	doneFn := metrics.ReportFuncTiming(c.svcTags)
-	defer doneFn()
+	defer coretracer.Trace(&ctx, c.svcTags)()
 
 	resp, err := c.QueryClient.ValsetConfirmsByNonce(ctx, &peggytypes.QueryValsetConfirmsByNonceRequest{Nonce: nonce})
 	if err != nil {
-		metrics.ReportFuncError(c.svcTags)
+		coretracer.TraceError(ctx, err)
 		return nil, errors.Wrap(err, "failed to query ValsetConfirmsByNonce from daemon")
 	}
 
 	if resp == nil {
-		metrics.ReportFuncError(c.svcTags)
+		coretracer.TraceError(ctx, ErrNotFound)
 		return nil, ErrNotFound
 	}
 
@@ -145,9 +137,7 @@ func (c queryClient) AllValsetConfirms(ctx context.Context, nonce uint64) ([]*pe
 }
 
 func (c queryClient) OldestUnsignedTransactionBatch(ctx context.Context, valAccountAddress cosmostypes.AccAddress) (*peggytypes.OutgoingTxBatch, error) {
-	metrics.ReportFuncCall(c.svcTags)
-	doneFn := metrics.ReportFuncTiming(c.svcTags)
-	defer doneFn()
+	defer coretracer.Trace(&ctx, c.svcTags)()
 
 	req := &peggytypes.QueryLastPendingBatchRequestByAddrRequest{
 		Address: valAccountAddress.String(),
@@ -155,12 +145,12 @@ func (c queryClient) OldestUnsignedTransactionBatch(ctx context.Context, valAcco
 
 	resp, err := c.QueryClient.LastPendingBatchRequestByAddr(ctx, req)
 	if err != nil {
-		metrics.ReportFuncError(c.svcTags)
+		coretracer.TraceError(ctx, err)
 		return nil, errors.Wrap(err, "failed to query LastPendingBatchRequestByAddr from daemon")
 	}
 
 	if resp == nil {
-		metrics.ReportFuncError(c.svcTags)
+		coretracer.TraceError(ctx, ErrNotFound)
 		return nil, ErrNotFound
 	}
 
@@ -168,18 +158,16 @@ func (c queryClient) OldestUnsignedTransactionBatch(ctx context.Context, valAcco
 }
 
 func (c queryClient) LatestTransactionBatches(ctx context.Context) ([]*peggytypes.OutgoingTxBatch, error) {
-	metrics.ReportFuncCall(c.svcTags)
-	doneFn := metrics.ReportFuncTiming(c.svcTags)
-	defer doneFn()
+	defer coretracer.Trace(&ctx, c.svcTags)()
 
 	resp, err := c.QueryClient.OutgoingTxBatches(ctx, &peggytypes.QueryOutgoingTxBatchesRequest{})
 	if err != nil {
-		metrics.ReportFuncError(c.svcTags)
+		coretracer.TraceError(ctx, err)
 		return nil, errors.Wrap(err, "failed to query OutgoingTxBatches from daemon")
 	}
 
 	if resp == nil {
-		metrics.ReportFuncError(c.svcTags)
+		coretracer.TraceError(ctx, ErrNotFound)
 		return nil, ErrNotFound
 	}
 
@@ -187,18 +175,16 @@ func (c queryClient) LatestTransactionBatches(ctx context.Context) ([]*peggytype
 }
 
 func (c queryClient) UnbatchedTokensWithFees(ctx context.Context) ([]*peggytypes.BatchFees, error) {
-	metrics.ReportFuncCall(c.svcTags)
-	doneFn := metrics.ReportFuncTiming(c.svcTags)
-	defer doneFn()
+	defer coretracer.Trace(&ctx, c.svcTags)()
 
 	resp, err := c.QueryClient.BatchFees(ctx, &peggytypes.QueryBatchFeeRequest{})
 	if err != nil {
-		metrics.ReportFuncError(c.svcTags)
+		coretracer.TraceError(ctx, err)
 		return nil, errors.Wrap(err, "failed to query BatchFees from daemon")
 	}
 
 	if resp == nil {
-		metrics.ReportFuncError(c.svcTags)
+		coretracer.TraceError(ctx, ErrNotFound)
 		return nil, ErrNotFound
 	}
 
@@ -206,9 +192,7 @@ func (c queryClient) UnbatchedTokensWithFees(ctx context.Context) ([]*peggytypes
 }
 
 func (c queryClient) TransactionBatchSignatures(ctx context.Context, nonce uint64, tokenContract gethcommon.Address) ([]*peggytypes.MsgConfirmBatch, error) {
-	metrics.ReportFuncCall(c.svcTags)
-	doneFn := metrics.ReportFuncTiming(c.svcTags)
-	defer doneFn()
+	defer coretracer.Trace(&ctx, c.svcTags)()
 
 	req := &peggytypes.QueryBatchConfirmsRequest{
 		Nonce:           nonce,
@@ -217,12 +201,12 @@ func (c queryClient) TransactionBatchSignatures(ctx context.Context, nonce uint6
 
 	resp, err := c.QueryClient.BatchConfirms(ctx, req)
 	if err != nil {
-		metrics.ReportFuncError(c.svcTags)
+		coretracer.TraceError(ctx, err)
 		return nil, errors.Wrap(err, "failed to query BatchConfirms from daemon")
 	}
 
 	if resp == nil {
-		metrics.ReportFuncError(c.svcTags)
+		coretracer.TraceError(ctx, ErrNotFound)
 		return nil, ErrNotFound
 	}
 
@@ -230,9 +214,7 @@ func (c queryClient) TransactionBatchSignatures(ctx context.Context, nonce uint6
 }
 
 func (c queryClient) LastClaimEventByAddr(ctx context.Context, validatorAccountAddress cosmostypes.AccAddress) (*peggytypes.LastClaimEvent, error) {
-	metrics.ReportFuncCall(c.svcTags)
-	doneFn := metrics.ReportFuncTiming(c.svcTags)
-	defer doneFn()
+	defer coretracer.Trace(&ctx, c.svcTags)()
 
 	req := &peggytypes.QueryLastEventByAddrRequest{
 		Address: validatorAccountAddress.String(),
@@ -240,12 +222,12 @@ func (c queryClient) LastClaimEventByAddr(ctx context.Context, validatorAccountA
 
 	resp, err := c.QueryClient.LastEventByAddr(ctx, req)
 	if err != nil {
-		metrics.ReportFuncError(c.svcTags)
+		coretracer.TraceError(ctx, err)
 		return nil, errors.Wrap(err, "failed to query LastEventByAddr from daemon")
 	}
 
 	if resp == nil {
-		metrics.ReportFuncError(c.svcTags)
+		coretracer.TraceError(ctx, ErrNotFound)
 		return nil, ErrNotFound
 	}
 
@@ -253,18 +235,16 @@ func (c queryClient) LastClaimEventByAddr(ctx context.Context, validatorAccountA
 }
 
 func (c queryClient) PeggyParams(ctx context.Context) (*peggytypes.Params, error) {
-	metrics.ReportFuncCall(c.svcTags)
-	doneFn := metrics.ReportFuncTiming(c.svcTags)
-	defer doneFn()
+	defer coretracer.Trace(&ctx, c.svcTags)()
 
 	resp, err := c.QueryClient.Params(ctx, &peggytypes.QueryParamsRequest{})
 	if err != nil {
-		metrics.ReportFuncError(c.svcTags)
+		coretracer.TraceError(ctx, err)
 		return nil, errors.Wrap(err, "failed to query PeggyParams from daemon")
 	}
 
 	if resp == nil {
-		metrics.ReportFuncError(c.svcTags)
+		coretracer.TraceError(ctx, ErrNotFound)
 		return nil, ErrNotFound
 	}
 
@@ -272,9 +252,7 @@ func (c queryClient) PeggyParams(ctx context.Context) (*peggytypes.Params, error
 }
 
 func (c queryClient) GetValidatorAddress(ctx context.Context, addr gethcommon.Address) (cosmostypes.AccAddress, error) {
-	metrics.ReportFuncCall(c.svcTags)
-	doneFn := metrics.ReportFuncTiming(c.svcTags)
-	defer doneFn()
+	defer coretracer.Trace(&ctx, c.svcTags)()
 
 	req := &peggytypes.QueryDelegateKeysByEthAddress{
 		EthAddress: addr.Hex(),
@@ -282,19 +260,38 @@ func (c queryClient) GetValidatorAddress(ctx context.Context, addr gethcommon.Ad
 
 	resp, err := c.QueryClient.GetDelegateKeyByEth(ctx, req)
 	if err != nil {
-		metrics.ReportFuncError(c.svcTags)
+		coretracer.TraceError(ctx, err)
 		return nil, errors.Wrap(err, "failed to query GetDelegateKeyByEth from client")
 	}
 
 	if resp == nil {
-		metrics.ReportFuncError(c.svcTags)
+		coretracer.TraceError(ctx, ErrNotFound)
 		return nil, ErrNotFound
 	}
 
 	valAddr, err := cosmostypes.AccAddressFromBech32(resp.ValidatorAddress)
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to decode validator address: %v", resp.ValidatorAddress)
+		err := errors.Wrapf(err, "failed to decode validator address: %v", resp.ValidatorAddress)
+		coretracer.TraceError(ctx, err)
+		return nil, err
 	}
 
 	return valAddr, nil
+}
+
+func (c queryClient) ModuleState(ctx context.Context) (*peggytypes.GenesisState, error) {
+	defer coretracer.Trace(&ctx, c.svcTags)()
+
+	resp, err := c.PeggyModuleState(ctx, &peggytypes.QueryModuleStateRequest{})
+	if err != nil {
+		coretracer.TraceError(ctx, err)
+		return nil, errors.Wrap(err, "failed to query PeggyModuleState from client")
+	}
+
+	if resp == nil {
+		coretracer.TraceError(ctx, ErrNotFound)
+		return nil, ErrNotFound
+	}
+
+	return resp.State, nil
 }

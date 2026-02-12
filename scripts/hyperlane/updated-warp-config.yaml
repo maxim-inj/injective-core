@@ -15,8 +15,9 @@ gethlocal:
   symbol: hINJ
   decimals: 18
   isNft: false
-  contractVersion: 9.0.9
+  contractVersion: 10.0.1
   type: synthetic
   proxyAdmin:
     address: "0x3ED06BF50919c9Fd3cEbA810484706EFCbDf2F73"
     owner: "0xA5D139cA25544F4560d1c7EF0cFd58109417Cdd1"
+  destinationGas: {}

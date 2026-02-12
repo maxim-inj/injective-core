@@ -22,6 +22,7 @@ import (
 	"github.com/InjectiveLabs/injective-core/injective-chain/modules/evm/precompiles/bindings/cosmos/precompile/bank"
 	precomptypes "github.com/InjectiveLabs/injective-core/injective-chain/modules/evm/precompiles/types"
 	"github.com/InjectiveLabs/injective-core/injective-chain/modules/evm/types"
+	tftypes "github.com/InjectiveLabs/injective-core/injective-chain/modules/tokenfactory/types"
 )
 
 const (
@@ -72,9 +73,11 @@ func init() {
 }
 
 type Contract struct {
-	bankKeeper          types.BankKeeper
-	communityPoolKeeper types.CommunityPoolKeeper
-	erc20QueryServer    erc20types.QueryServer
+	bankKeeper       types.BankKeeper
+	erc20QueryServer erc20types.QueryServer
+	erc20Keeper      types.ERC20Keeper
+	tfMsgServer      types.TFMsgServer
+	accountKeeper    types.AccountKeeper
 
 	cdc         codec.Codec
 	kvGasConfig storetypes.GasConfig
@@ -84,16 +87,20 @@ type Contract struct {
 func NewContract(
 	bankKeeper types.BankKeeper,
 	erc20QueryServer erc20types.QueryServer,
+	erc20Keeper types.ERC20Keeper,
+	tfMsgServer types.TFMsgServer,
+	accountKeeper types.AccountKeeper,
 	cdc codec.Codec,
 	kvGasConfig storetypes.GasConfig,
-	communityPoolKeeper types.CommunityPoolKeeper,
 ) vm.PrecompiledContract {
 	return &Contract{
-		bankKeeper:          bankKeeper,
-		erc20QueryServer:    erc20QueryServer,
-		cdc:                 cdc,
-		kvGasConfig:         kvGasConfig,
-		communityPoolKeeper: communityPoolKeeper,
+		bankKeeper:       bankKeeper,
+		erc20QueryServer: erc20QueryServer,
+		erc20Keeper:      erc20Keeper,
+		tfMsgServer:      tfMsgServer,
+		accountKeeper:    accountKeeper,
+		cdc:              cdc,
+		kvGasConfig:      kvGasConfig,
 	}
 }
 
@@ -148,7 +155,7 @@ func (bc *Contract) Run(evm *vm.EVM, contract *vm.Contract, readonly bool) ([]by
 func (bc *Contract) run(evm *vm.EVM, contract *vm.Contract, readonly bool) (output []byte, err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			err = ErrPrecompilePanic
+			err = errorsmod.Wrapf(ErrPrecompilePanic, "%v", r)
 			output = nil
 		}
 	}()
@@ -193,7 +200,7 @@ func (bc *Contract) mintBurn(stateDB precompiles.ExtStateDB, method *abi.Method,
 	if err != nil {
 		return nil, errors.New("fail to unpack input arguments")
 	}
-	recipient, ok := args[0].(common.Address)
+	actor, ok := args[0].(common.Address)
 	if !ok {
 		return nil, errors.New("arg 0 is not of an Address type")
 	}
@@ -204,41 +211,53 @@ func (bc *Contract) mintBurn(stateDB precompiles.ExtStateDB, method *abi.Method,
 	if amount.Sign() == -1 {
 		return nil, errors.New("invalid negative amount")
 	}
-	addr := sdk.AccAddress(recipient.Bytes())
-	if err := bc.checkBlockedAddr(addr); err != nil {
+	actorAddr := sdk.AccAddress(actor.Bytes())
+	if err := bc.checkBlockedAddr(actorAddr); err != nil {
 		return nil, err
 	}
 	denom := bc.GetBankDenom(stateDB.CacheContext(), calledAddress)
-	if !isMintableBurnable(denom) {
-		return nil, errors.New("bank denom can't be minter / burned")
-	}
 	amt := sdk.NewCoin(denom, sdkmath.NewIntFromBigInt(amount))
 	err = stateDB.ExecuteNativeAction(precompileAddress, nil, func(ctx sdk.Context) error {
 		if err := bc.bankKeeper.IsSendEnabledCoins(ctx, amt); err != nil {
 			return err
 		}
 		if method.Name == "mint" {
-			if bc.needsDenomCreationFee(ctx, denom) {
-				// charge contract for denom ccreation
-				if err := bc.chargeDenomCreationFee(ctx, sdk.AccAddress(calledAddress.Bytes())); err != nil {
-					return errorsmod.Wrap(err, "fail to charge denom creation fee")
+			switch erc20types.GetDenomType(denom) {
+			case erc20types.DenomTypeERC20:
+				return bc.erc20Keeper.MintERC20(ctx, calledAddress, actorAddr, amt.Amount)
+			case erc20types.DenomTypeTokenFactory:
+				msgMint := &tftypes.MsgMint{
+					Sender:   sdk.AccAddress(calledAddress.Bytes()).String(), // contract address is the minter
+					Amount:   amt,
+					Receiver: actorAddr.String(),
 				}
-			}
-			if err := bc.bankKeeper.MintCoins(ctx, types.ModuleName, sdk.NewCoins(amt)); err != nil {
-				return errorsmod.Wrap(err, "fail to mint coins in precompiled contract")
-			}
-			if err := bc.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleName, addr, sdk.NewCoins(amt)); err != nil {
-				return errorsmod.Wrap(err, "fail to send mint coins to account")
+				if err := msgMint.ValidateBasic(); err != nil {
+					return err
+				}
+				_, err := bc.tfMsgServer.Mint(ctx, msgMint)
+				return err
+			default:
+				return fmt.Errorf("denom %s does not support minting through bank precompile", denom)
 			}
 		} else {
-			if err := bc.bankKeeper.SendCoinsFromAccountToModule(ctx, addr, types.ModuleName, sdk.NewCoins(amt)); err != nil {
-				return errorsmod.Wrap(err, "fail to send burn coins to module")
-			}
-			if err := bc.bankKeeper.BurnCoins(ctx, types.ModuleName, sdk.NewCoins(amt)); err != nil {
-				return errorsmod.Wrap(err, "fail to burn coins in precompiled contract")
+			switch erc20types.GetDenomType(denom) {
+			case erc20types.DenomTypeERC20:
+				return bc.erc20Keeper.BurnERC20(ctx, calledAddress, actorAddr, amt.Amount)
+			case erc20types.DenomTypeTokenFactory:
+				msgBurn := &tftypes.MsgBurn{
+					Sender:          sdk.AccAddress(calledAddress.Bytes()).String(), // contract address is the superburner
+					Amount:          amt,
+					BurnFromAddress: actorAddr.String(),
+				}
+				if err := msgBurn.ValidateBasic(); err != nil {
+					return err
+				}
+				_, err := bc.tfMsgServer.Burn(ctx, msgBurn)
+				return err
+			default:
+				return fmt.Errorf("denom %s does not support burning through bank precompile", denom)
 			}
 		}
-		return nil
 	})
 	if err != nil {
 		return nil, err
@@ -303,6 +322,11 @@ func (bc *Contract) setMetadata(stateDB precompiles.ExtStateDB, method *abi.Meth
 	}
 
 	denom := bc.GetBankDenom(stateDB.CacheContext(), calledAddress)
+
+	if erc20types.GetDenomType(denom) != erc20types.DenomTypeERC20 {
+		return nil, fmt.Errorf("denom %s does not support setting metadata through bank precompile", denom)
+	}
+
 	metadata, _ := bc.bankKeeper.GetDenomMetaData(stateDB.CacheContext(), denom)
 
 	name, ok := args[0].(string)
@@ -391,6 +415,11 @@ func (bc *Contract) transfer(stateDB precompiles.ExtStateDB, method *abi.Method,
 		if bc.bankKeeper.BlockedAddr(to) {
 			return fmt.Errorf("%s is not allowed to receive funds", to)
 		}
+		if acc := bc.accountKeeper.GetAccount(ctx, from); acc != nil {
+			if _, isModule := acc.(sdk.ModuleAccountI); isModule {
+				return errors.New("can not transfer from module address")
+			}
+		}
 		if err := bc.bankKeeper.SendCoins(ctx, from, to, sdk.NewCoins(amt)); err != nil {
 			return errorsmod.Wrap(err, "fail to send coins in precompiled contract")
 		}
@@ -402,35 +431,6 @@ func (bc *Contract) transfer(stateDB precompiles.ExtStateDB, method *abi.Method,
 	return method.Outputs.Pack(true)
 }
 
-// needsDenomCreationFee checks if we need to charge creation fee to mint denom
-func (bc *Contract) needsDenomCreationFee(ctx sdk.Context, denom string) bool {
-	// only charge for erc20: denoms
-	if erc20types.GetDenomType(denom) != erc20types.DenomTypeERC20 {
-		return false
-	}
-	return !bc.bankKeeper.HasSupply(ctx, denom)
-}
-
-// chargeDenomCreationFee sends denom creation fee to community pool
-func (bc *Contract) chargeDenomCreationFee(ctx sdk.Context, payerAddr sdk.AccAddress) error {
-	// Send creation fee to community pool
-	creationFee := bc.GetDenomCreationFee(ctx)
-	if creationFee.Amount.GT(zero) {
-		if err := bc.communityPoolKeeper.FundCommunityPool(ctx, sdk.NewCoins(creationFee), payerAddr); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (bc *Contract) GetDenomCreationFee(ctx sdk.Context) sdk.Coin {
-	params, err := bc.erc20QueryServer.Params(ctx, &erc20types.QueryParamsRequest{})
-	if err != nil {
-		return erc20types.DefaultParams().DenomCreationFee
-	}
-	return params.Params.DenomCreationFee
-}
-
 func (bc *Contract) GetBankDenom(ctx sdk.Context, erc20Addr common.Address) string {
 	pair, err := bc.erc20QueryServer.TokenPairByERC20Address(ctx, &erc20types.QueryTokenPairByERC20AddressRequest{Erc20Address: erc20Addr.Hex()})
 	if err == nil && pair.TokenPair != nil {
@@ -438,14 +438,4 @@ func (bc *Contract) GetBankDenom(ctx sdk.Context, erc20Addr common.Address) stri
 	}
 
 	return erc20types.DenomPrefix + erc20Addr.Hex()
-}
-
-// isMintableBurnable return true only for token factory and evm denoms
-func isMintableBurnable(denom string) bool {
-	switch erc20types.GetDenomType(denom) {
-	case erc20types.DenomTypeERC20, erc20types.DenomTypeTokenFactory:
-		return true
-	default:
-		return false
-	}
 }

@@ -168,7 +168,7 @@ func (k *Keeper) executeMetered(
 	payerAccount, otherErr := k.DeductFees(ctx, contractAddr, gasToDeduct, contract)
 	if otherErr != nil {
 		k.Logger(ctx).
-			Info("❌ Error deducting fees", "contractAddress", contractAddr.String(), "error", otherErr)
+			Debug("❌ Error deducting fees", "contractAddress", contractAddr.String(), "error", otherErr)
 		return nil, otherErr, nil
 	}
 

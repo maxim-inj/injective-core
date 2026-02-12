@@ -3,6 +3,7 @@ package peggy
 import (
 	"sort"
 
+	sdkmath "cosmossdk.io/math"
 	"github.com/ethereum/go-ethereum/common"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -11,6 +12,10 @@ import (
 
 	"github.com/InjectiveLabs/injective-core/injective-chain/modules/peggy/keeper"
 	"github.com/InjectiveLabs/injective-core/injective-chain/modules/peggy/types"
+)
+
+var (
+	DefaultValsetPowerDiffThreshold = sdkmath.LegacyMustNewDecFromStr("0.05")
 )
 
 type BlockHandler struct {
@@ -62,7 +67,7 @@ func (h *BlockHandler) createValsets(ctx sdk.Context) {
 	lastUnbondingHeight := h.k.GetLastUnbondingBlockHeight(ctx)
 
 	if (latestValset == nil) || (lastUnbondingHeight == uint64(ctx.BlockHeight())) ||
-		(types.BridgeValidators(h.k.GetCurrentValset(ctx).Members).PowerDiff(latestValset.Members) > 0.05) {
+		(types.BridgeValidators(h.k.GetCurrentValset(ctx).Members).PowerDiff(latestValset.Members).GTE(DefaultValsetPowerDiffThreshold)) {
 		// if the conditions are true, put in a new validator set request to be signed and submitted to Ethereum
 		h.k.SetValsetRequest(ctx)
 	}
@@ -209,6 +214,16 @@ func (h *BlockHandler) valsetSlashing(ctx sdk.Context, params *types.Params) {
 
 	unslashedValsets := h.k.GetUnslashedValsets(ctx, maxHeight)
 
+	wasInValset := func(addr common.Address, vs *types.Valset) bool {
+		for _, member := range vs.Members {
+			if addr == common.HexToAddress(member.EthereumAddress) {
+				return true
+			}
+		}
+
+		return false
+	}
+
 	// unslashedValsets are sorted by nonce in ASC order
 	for _, vs := range unslashedValsets {
 		confirms := h.k.GetValsetConfirms(ctx, vs.Nonce)
@@ -219,15 +234,15 @@ func (h *BlockHandler) valsetSlashing(ctx sdk.Context, params *types.Params) {
 		for i := range currentBondedSet {
 			consAddr, _ := currentBondedSet[i].GetConsAddr()
 			valSigningInfo, err := h.k.SlashingKeeper.GetValidatorSigningInfo(ctx, consAddr)
+			valAddr, _ := sdk.ValAddressFromBech32(currentBondedSet[i].GetOperator())
+			ethAddress, exists := h.k.GetEthAddressByValidator(ctx, valAddr)
 
 			exist := err == nil
 			//  Slash validator ONLY if he joined after valset is created
-			if exist && valSigningInfo.StartHeight < int64(vs.Height) {
+			if exist && (valSigningInfo.StartHeight < int64(vs.Height) || wasInValset(ethAddress, vs)) {
 				// Check if validator has confirmed valset or not
 				found := false
 				for _, conf := range confirms {
-					valAddr, _ := sdk.ValAddressFromBech32(currentBondedSet[i].GetOperator())
-					ethAddress, exists := h.k.GetEthAddressByValidator(ctx, valAddr)
 					// This may have an issue if the validator changes their eth address
 					// TODO this presents problems for delegate key rotation see issue #344
 					if exists && common.HexToAddress(conf.EthAddress) == ethAddress {

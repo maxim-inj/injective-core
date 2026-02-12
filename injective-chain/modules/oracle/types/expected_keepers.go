@@ -8,6 +8,7 @@ import (
 	clienttypes "github.com/cosmos/ibc-go/v8/modules/core/02-client/types"
 	channeltypes "github.com/cosmos/ibc-go/v8/modules/core/04-channel/types"
 
+	evmtypes "github.com/InjectiveLabs/injective-core/injective-chain/modules/evm/types"
 	ocrtypes "github.com/InjectiveLabs/injective-core/injective-chain/modules/ocr/types"
 )
 
@@ -43,4 +44,9 @@ type PortKeeper interface {
 
 type OcrKeeper interface {
 	GetTransmission(ctx sdk.Context, feedId string) *ocrtypes.Transmission
+}
+
+// EVMKeeper defines the expected EVM keeper methods for Chainlink Data Streams verification
+type EVMKeeper interface {
+	EthCall(c context.Context, req *evmtypes.EthCallRequest) (*evmtypes.MsgEthereumTxResponse, error)
 }

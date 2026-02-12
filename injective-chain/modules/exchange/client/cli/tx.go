@@ -99,6 +99,7 @@ func NewTxCmd() *cobra.Command {
 		NewIncreasePositionMarginTxCmd(),
 		NewDecreasePositionMarginTxCmd(),
 		NewMsgLiquidatePositionTxCmd(),
+		NewActivatePostOnlyModeTxCmd(),
 		NewCancelPostOnlyModeTxCmd(),
 	)
 	return cmd
@@ -452,6 +453,19 @@ func NewSpotMarketUpdateParamsProposalTxCmd() *cobra.Command {
 				},
 				"BaseDecimals":  cli.Flag{Flag: FlagBaseDecimals},
 				"QuoteDecimals": cli.Flag{Flag: FlagQuoteDecimals},
+				"HasDisabledMinimalProtocolFee": cli.Flag{
+					Flag: FlagHasDisabledMinimalProtocolFee,
+					Transform: func(orig string, _ grpc.ClientConn) (any, error) {
+						b, err := strconv.ParseBool(orig) // accepts True/False/true/false/1/0
+						if err != nil {
+							return nil, fmt.Errorf("invalid value for %s: %w", FlagHasDisabledMinimalProtocolFee, err)
+						}
+						if b {
+							return "2", nil
+						}
+						return "1", nil
+					},
+				},
 			}
 			argsMapping := cli.ArgsMapping{}
 
@@ -501,6 +515,7 @@ func NewSpotMarketUpdateParamsProposalTxCmd() *cobra.Command {
 			--title="Spot market params update" \
 			--description="XX" \
 			--deposit="1000000000000000000inj" \
+			--disabled-minimal-protocol-fee=false \
 			--expedited=false`
 
 	cmd.Flags().String(FlagMarketID, "", "Spot market ID")
@@ -516,6 +531,7 @@ func NewSpotMarketUpdateParamsProposalTxCmd() *cobra.Command {
 	cmd.Flags().Uint32(FlagAdminPermissions, 0, "admin permissions level")
 	cmd.Flags().Uint32(FlagBaseDecimals, 0, "base asset decimals")
 	cmd.Flags().Uint32(FlagQuoteDecimals, 0, "quote asset decimals")
+	cmd.Flags().Bool(FlagHasDisabledMinimalProtocolFee, false, "set if market has disabled minimal protocol fee")
 	cmd.Flags().Bool(FlagExpedited, false, "set the expedited value for the governance proposal")
 	cliflags.AddGovProposalFlags(cmd)
 	cliflags.AddTxFlagsToCmd(cmd)
@@ -2486,6 +2502,7 @@ func NewDerivativeMarketParamUpdateProposalTxCmd() *cobra.Command {
 		--maintenance-margin-ratio="0.01" \
 		--reduce-margin-ratio="0.01" \
 		--open-notional-cap="uncapped" \
+		--disabled-minimal-protocol-fee=false \
 		--maker-fee-rate="0.01" \
 		--taker-fee-rate="0.01" \
 		--relayer-fee-share-rate="0.01" \
@@ -3524,6 +3541,30 @@ func NewMsgLiquidatePositionTxCmd() *cobra.Command {
 	return cmd
 }
 
+func NewActivatePostOnlyModeTxCmd() *cobra.Command {
+	cmd := cli.TxCmd(
+		"activate-post-only-mode",
+		"Activate post-only mode for a number of blocks",
+		&exchangev2.MsgActivatePostOnlyMode{},
+		cli.FlagsMapping{
+			"BlocksAmount": cli.Flag{Flag: FlagBlocksAmount},
+		},
+		cli.ArgsMapping{},
+	)
+	cmd.Flags().Uint32(FlagBlocksAmount, 0, "number of blocks to activate post-only mode for")
+	err := cmd.MarkFlagRequired(FlagBlocksAmount)
+	if err != nil {
+		panic(err)
+	}
+
+	cmd.Example = `injectived tx exchange activate-post-only-mode \
+		--blocks-amount=100 \
+		--from=genesis \
+		--keyring-backend=file \
+		--yes`
+	return cmd
+}
+
 func NewCancelPostOnlyModeTxCmd() *cobra.Command {
 	cmd := cli.TxCmd(
 		"cancel-post-only-mode",
@@ -3583,10 +3624,22 @@ func getDerivativeMarketParamUpdateFlagsMapping() cli.FlagsMapping {
 				return fmt.Sprintf("%v", int32(oracleType)), nil
 			},
 		},
-		"Ticker":           cli.Flag{Flag: FlagTicker},
-		"MinNotional":      cli.Flag{Flag: FlagMinNotional},
-		"OpenNotionalCap":  cli.Flag{Flag: FlagOpenNotionalCap},
-		"Admin":            cli.Flag{Flag: FlagAdmin},
+		"Ticker":          cli.Flag{Flag: FlagTicker},
+		"MinNotional":     cli.Flag{Flag: FlagMinNotional},
+		"OpenNotionalCap": cli.Flag{Flag: FlagOpenNotionalCap},
+		"HasDisabledMinimalProtocolFee": cli.Flag{
+			Flag: FlagHasDisabledMinimalProtocolFee,
+			Transform: func(orig string, _ grpc.ClientConn) (any, error) {
+				b, err := strconv.ParseBool(orig) // accepts True/False/true/false/1/0
+				if err != nil {
+					return nil, fmt.Errorf("invalid value for %s: %w", FlagHasDisabledMinimalProtocolFee, err)
+				}
+				if b {
+					return "2", nil
+				}
+				return "1", nil
+			},
+		}, "Admin": cli.Flag{Flag: FlagAdmin},
 		"AdminPermissions": cli.Flag{Flag: FlagAdminPermissions},
 		"BaseDecimals":     cli.Flag{Flag: FlagBaseDecimals},
 		"QuoteDecimals":    cli.Flag{Flag: FlagQuoteDecimals},
@@ -3616,6 +3669,8 @@ func setupDerivativeMarketParamUpdateFlags(cmd *cobra.Command) {
 	cmd.Flags().String(FlagAdmin, "", "market admin")
 	cmd.Flags().Uint32(FlagAdminPermissions, 0, "admin permissions level")
 	cmd.Flags().Bool(FlagExpedited, false, "set the expedited value for the governance proposal")
+	cmd.Flags().Bool(FlagHasDisabledMinimalProtocolFee, false, "set if market has disabled minimal protocol fee")
+
 	cliflags.AddGovProposalFlags(cmd)
 	cliflags.AddTxFlagsToCmd(cmd)
 }

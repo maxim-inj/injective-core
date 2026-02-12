@@ -279,6 +279,33 @@ metrics-address = "{{ .JSONRPC.MetricsAddress }}"
 return-data-limit = {{ .JSONRPC.ReturnDataLimit }}
 
 ###############################################################################
+###                  Injective Websocket Configuration                       ###
+###############################################################################
+
+[injective-websocket]
+
+# Address defines the websocket server address to bind to.
+address = "{{ .InjectiveWebsocket.Address }}"
+
+# MaxOpenConnections sets the maximum number of simultaneous connections.
+max-open-connections = {{ .InjectiveWebsocket.MaxOpenConnections }}
+
+# ReadTimeout defines the HTTP read timeout.
+read-timeout = "{{ .InjectiveWebsocket.ReadTimeout }}"
+
+# WriteTimeout defines the HTTP write timeout.
+write-timeout = "{{ .InjectiveWebsocket.WriteTimeout }}"
+
+# MaxBodyBytes defines the maximum allowed HTTP body size (in bytes).
+max-body-bytes = {{ .InjectiveWebsocket.MaxBodyBytes }}
+
+# MaxHeaderBytes defines the maximum allowed HTTP header size (in bytes).
+max-header-bytes = {{ .InjectiveWebsocket.MaxHeaderBytes }}
+
+# MaxRequestBatchSize defines the maximum number of RPC calls per batch request.
+max-request-batch-size = {{ .InjectiveWebsocket.MaxRequestBatchSize }}
+
+###############################################################################
 ###                        State Sync Configuration                         ###
 ###############################################################################
 

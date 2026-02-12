@@ -1,9 +1,10 @@
 package types
 
 import (
+	"math/big"
+
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"math/big"
 )
 
 const (

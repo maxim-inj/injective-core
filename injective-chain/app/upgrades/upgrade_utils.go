@@ -9,7 +9,12 @@ import (
 	storetypes "cosmossdk.io/store/types"
 	upgradetypes "cosmossdk.io/x/upgrade/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
+	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
+	distrkeeper "github.com/cosmos/cosmos-sdk/x/distribution/keeper"
+	slashingkeeper "github.com/cosmos/cosmos-sdk/x/slashing/keeper"
 	stakingkeeper "github.com/cosmos/cosmos-sdk/x/staking/keeper"
+	icahostkeeper "github.com/cosmos/ibc-go/v8/modules/apps/27-interchain-accounts/host/keeper"
 	"github.com/pkg/errors"
 
 	auctionkeeper "github.com/InjectiveLabs/injective-core/injective-chain/modules/auction/keeper"
@@ -17,13 +22,9 @@ import (
 	erc20keeper "github.com/InjectiveLabs/injective-core/injective-chain/modules/erc20/keeper"
 	evmkeeper "github.com/InjectiveLabs/injective-core/injective-chain/modules/evm/keeper"
 	exchangekeeper "github.com/InjectiveLabs/injective-core/injective-chain/modules/exchange/keeper"
+	oraclekeeper "github.com/InjectiveLabs/injective-core/injective-chain/modules/oracle/keeper"
 	peggykeeper "github.com/InjectiveLabs/injective-core/injective-chain/modules/peggy/keeper"
 	txfeeskeeper "github.com/InjectiveLabs/injective-core/injective-chain/modules/txfees/keeper"
-	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
-	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
-	distrkeeper "github.com/cosmos/cosmos-sdk/x/distribution/keeper"
-	slashingkeeper "github.com/cosmos/cosmos-sdk/x/slashing/keeper"
-	icahostkeeper "github.com/cosmos/ibc-go/v8/modules/apps/27-interchain-accounts/host/keeper"
 )
 
 type UpgradeHandlerStep struct {
@@ -135,6 +136,7 @@ type InjectiveApplication interface {
 	GetAuctionKeeper() *auctionkeeper.Keeper
 	GetDowntimeDetectorKeeper() *downtimedetector.Keeper
 	GetICAHostKeeper() icahostkeeper.Keeper
+	GetOracleKeeper() *oraclekeeper.Keeper
 }
 
 func LogUpgradeProgress(logger log.Logger, startTime, lastUpdatedTime time.Time, currentUpdateNumber, totalUpdates int) {

@@ -9,6 +9,7 @@ import (
 	"cosmossdk.io/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
+	permissionstypes "github.com/InjectiveLabs/injective-core/injective-chain/modules/permissions/types"
 	"github.com/InjectiveLabs/injective-core/injective-chain/modules/tokenfactory/types"
 
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
@@ -20,10 +21,17 @@ type Keeper struct {
 
 	accountKeeper       types.AccountKeeper
 	bankKeeper          types.BankKeeper
-	permissionsKeeper   types.PermissionsKeeper
+	permissionsKeeper   PermissionsKeeper
 	communityPoolKeeper types.CommunityPoolKeeper
 
 	authority string
+}
+
+// PermissionsKeeper is defined here and not inside types/expected_keeper.go
+// due to import cycle between tokenfactorytypes <-> permissionstypes <-> evmtypes <->tokenfactorytypes
+type PermissionsKeeper interface {
+	HasNamespace(ctx sdk.Context, denom string) bool
+	HasPermissionsForAction(ctx sdk.Context, denom string, actor sdk.AccAddress, action permissionstypes.Action) bool
 }
 
 // NewKeeper returns a new instance of the x/tokenfactory keeper
@@ -45,7 +53,7 @@ func NewKeeper(
 	}
 }
 
-func (k *Keeper) SetPermissionsKeeper(permissionsKeeper types.PermissionsKeeper) {
+func (k *Keeper) SetPermissionsKeeper(permissionsKeeper PermissionsKeeper) {
 	k.permissionsKeeper = permissionsKeeper
 }
 

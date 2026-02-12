@@ -4,12 +4,12 @@ import (
 	"context"
 	"math/big"
 
+	"github.com/InjectiveLabs/coretracer"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/pkg/errors"
 	log "github.com/xlab/suplog"
 
 	peggytypes "github.com/InjectiveLabs/injective-core/injective-chain/modules/peggy/types"
-	"github.com/InjectiveLabs/metrics"
 )
 
 type ValsetArgs struct {
@@ -27,13 +27,11 @@ func (s *peggyContract) SendEthValsetUpdate(
 	newValset *peggytypes.Valset,
 	confirms []*peggytypes.MsgValsetConfirm,
 ) (*common.Hash, error) {
-	metrics.ReportFuncCall(s.svcTags)
-	doneFn := metrics.ReportFuncTiming(s.svcTags)
-	defer doneFn()
+	defer coretracer.Trace(&ctx, s.svcTags)()
 
 	if newValset.Nonce <= oldValset.Nonce {
-		metrics.ReportFuncError(s.svcTags)
 		err := errors.New("new valset nonce should be greater than old valset nonce")
+		coretracer.TraceError(ctx, err)
 		return nil, err
 	}
 
@@ -58,7 +56,7 @@ func (s *peggyContract) SendEthValsetUpdate(
 	// members of the validator set in the contract.
 	currentValidators, currentPowers, sigV, sigR, sigS, err := checkValsetSigsAndRepack(oldValset, confirms)
 	if err != nil {
-		metrics.ReportFuncError(s.svcTags)
+		coretracer.TraceError(ctx, err)
 		err = errors.Wrap(err, "confirmations check failed")
 		return nil, err
 	}
@@ -96,7 +94,7 @@ func (s *peggyContract) SendEthValsetUpdate(
 		sigS,
 	)
 	if err != nil {
-		metrics.ReportFuncError(s.svcTags)
+		coretracer.TraceError(ctx, err)
 		log.WithError(err).Errorln("ABI Pack (Peggy updateValset) method")
 		return nil, err
 	}
@@ -108,7 +106,7 @@ func (s *peggyContract) SendEthValsetUpdate(
 
 	txHash, err := s.SendTx(ctx, s.peggyAddress, txData)
 	if err != nil {
-		metrics.ReportFuncError(s.svcTags)
+		coretracer.TraceError(ctx, err)
 		log.WithError(err).WithField("tx_hash", txHash.Hex()).Errorln("Failed to sign and submit (Peggy updateValset) to EVM")
 		return nil, err
 	}

@@ -61,8 +61,8 @@ func (msg MsgBid) Type() string { return TypeMsgBid }
 
 // ValidateBasic implements the sdk.Msg interface. It runs stateless checks on the message
 func (msg MsgBid) ValidateBasic() error {
-	if msg.Sender == "" {
-		return errors.Wrap(sdkerrors.ErrInvalidAddress, msg.Sender)
+	if _, err := sdk.AccAddressFromBech32(msg.Sender); err != nil {
+		return errors.Wrap(sdkerrors.ErrInvalidAddress, err.Error())
 	}
 
 	if !msg.BidAmount.IsValid() {

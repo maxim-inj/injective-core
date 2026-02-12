@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/InjectiveLabs/coretracer"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
@@ -14,8 +15,6 @@ import (
 	"github.com/shopspring/decimal"
 
 	peggytypes "github.com/InjectiveLabs/injective-core/injective-chain/modules/peggy/types"
-	"github.com/InjectiveLabs/metrics"
-
 	"github.com/InjectiveLabs/injective-core/peggo/orchestrator/ethereum/committer"
 	"github.com/InjectiveLabs/injective-core/peggo/orchestrator/ethereum/provider"
 	erc20wrappers "github.com/InjectiveLabs/injective-core/peggo/solidity/wrappers/InjToken"
@@ -92,9 +91,7 @@ func NewPeggyContract(
 		ethPeggy:              ethPeggy,
 		pendingTxInputList:    pendingTxInputList,
 		pendingTxWaitDuration: pendingTxWaitDuration,
-		svcTags: metrics.Tags{
-			"svc": "peggy_contract",
-		},
+		svcTags:               coretracer.NewTag("svc", "peggy_contract"),
 	}
 
 	return svc, nil
@@ -110,7 +107,7 @@ type peggyContract struct {
 	pendingTxInputList    PendingTxInputList
 	pendingTxWaitDuration time.Duration
 
-	svcTags metrics.Tags
+	svcTags coretracer.Tags
 }
 
 func (s *peggyContract) Address() common.Address {

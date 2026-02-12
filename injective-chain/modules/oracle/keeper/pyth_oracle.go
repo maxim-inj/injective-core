@@ -10,6 +10,15 @@ import (
 	"github.com/InjectiveLabs/injective-core/injective-chain/modules/oracle/types"
 )
 
+// PythKeeper defines the interface for Pyth oracle operations.
+type PythKeeper interface {
+	GetPythPrice(ctx sdk.Context, base, quote string) *math.LegacyDec
+	ProcessPythPriceAttestations(ctx sdk.Context, priceAttestations []*types.PriceAttestation)
+	SetPythPriceState(ctx sdk.Context, priceState *types.PythPriceState)
+	GetPythPriceState(ctx sdk.Context, priceID common.Hash) *types.PythPriceState
+	GetAllPythPriceStates(ctx sdk.Context) []*types.PythPriceState
+}
+
 // ProcessPythPriceAttestations sets the pyth price state.
 func (k *Keeper) ProcessPythPriceAttestations(ctx sdk.Context, priceAttestations []*types.PriceAttestation) {
 	ctx, doneFn := metrics.ReportFuncCallAndTimingSdkCtx(ctx, k.svcTags)

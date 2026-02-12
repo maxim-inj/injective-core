@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "unsubscribe_request.schema.json",
+  "title": "Unsubscribe Request",
+  "description": "JSON-RPC 2.0 request to unsubscribe from a chain stream subscription",
+  "type": "object",
+  "required": ["jsonrpc", "id", "method", "params"],
+  "properties": {
+    "jsonrpc": {
+      "type": "string",
+      "const": "2.0",
+      "description": "JSON-RPC protocol version"
+    },
+    "id": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Request identifier for this RPC call"
+    },
+    "method": {
+      "type": "string",
+      "const": "unsubscribe",
+      "description": "RPC method name"
+    },
+    "params": {
+      "type": "object",
+      "required": ["req"],
+      "properties": {
+        "req": {
+          "$ref": "#/$defs/unsubscribeRequest"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "unsubscribeRequest": {
+      "type": "object",
+      "required": ["subscription_id"],
+      "properties": {
+        "subscription_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The subscription ID that was provided when subscribing"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}
+

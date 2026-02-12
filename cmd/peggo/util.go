@@ -1,35 +1,21 @@
 package main
 
 import (
-	"bufio"
-	"bytes"
 	"encoding/hex"
 	"fmt"
-	"io/ioutil"
-	"os"
 	"strings"
 	"time"
 
 	ethcmn "github.com/ethereum/go-ethereum/common"
+	"github.com/joho/godotenv"
 	log "github.com/xlab/suplog"
 	"google.golang.org/grpc"
 )
 
-// readEnv is a special utility that reads `.env` file into actual environment variables
-// of the current app, similar to `dotenv` Node package.
+// readEnv is a special utility that reads `.env` file into actual environment variables of the current app
 func readEnv() {
-	if envdata, _ := ioutil.ReadFile(".env"); len(envdata) > 0 {
-		s := bufio.NewScanner(bytes.NewReader(envdata))
-		for s.Scan() {
-			parts := strings.Split(s.Text(), "=")
-			if len(parts) != 2 {
-				continue
-			}
-			strValue := strings.Trim(parts[1], `"`)
-			if err := os.Setenv(parts[0], strValue); err != nil {
-				log.WithField("name", parts[0]).WithError(err).Warningln("failed to override ENV variable")
-			}
-		}
+	if err := godotenv.Load(); err != nil {
+		log.WithError(err).Warningln("failed to load .env file")
 	}
 }
 

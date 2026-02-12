@@ -1,7 +1,3 @@
-<!--
-order: 6
--->
-
 # Hooks
 
 The `x/evm` module implements an `EvmHooks` interface that extend and customize the `Tx` processing logic externally.
@@ -40,7 +36,7 @@ The error returned by the hooks is translated to a VM error `failed to process n
 
 ## Use Case: Call Native ERC20 Module on Injective
 
-Here is an example taken from the Injective [erc20 module]() that shows how the `EVMHooks` supports a contract calling a native module to convert ERC-20 Tokens into Cosmos native Coins. Following the steps from above.
+Here is an example taken from the [erc20 module]() that shows how the `EVMHooks` supports a contract calling a native module to convert ERC-20 Tokens into Cosmos native Coins. Following the steps from above.
 
 You can define and emit a `Transfer` log signature in the smart contract like this:
 

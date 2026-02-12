@@ -197,9 +197,8 @@ func (b *Backend) GetTransactionReceipt(hash common.Hash) (map[string]interface{
 	}
 
 	// parse tx logs from events
-	logs, err := evmtypes.DecodeMsgLogsFromEvents(
+	logs, err := evmtypes.DecodeMsgLogs(
 		blockRes.TxResults[res.TxIndex].Data,
-		blockRes.TxResults[res.TxIndex].Events,
 		int(res.MsgIndex),
 		uint64(blockRes.Height),
 	)

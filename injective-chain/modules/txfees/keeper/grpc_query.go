@@ -48,7 +48,7 @@ func (q queryServer) GetEipBaseFee(c context.Context, _ *types.QueryEipBaseFeeRe
 	defer doneFn()
 
 	sdkCtx := sdk.UnwrapSDKContext(c)
-	if sdkCtx.BlockHeight() < q.k.CurFeeState.GetCurrentBlockHeight()-1 { // we do not support historical queries since we only have current BaseFee in memory
+	if sdkCtx.BlockHeight() < q.k.CurFeeState.GetCurrentBlockHeight()-2 { // we do not support historical queries since we only have current BaseFee in memory
 		return nil, types.ErrUnsupportedQueryParams
 	}
 
@@ -76,7 +76,7 @@ func (q osmosisQueryServer) GetEipBaseFee(
 	c context.Context, _ *osmosistypes.QueryEipBaseFeeRequest,
 ) (*osmosistypes.QueryEipBaseFeeResponse, error) {
 	sdkCtx := sdk.UnwrapSDKContext(c)
-	if sdkCtx.BlockHeight() < q.k.CurFeeState.GetCurrentBlockHeight()-1 { // we do not support historical queries since we only have current BaseFee in memory
+	if sdkCtx.BlockHeight() < q.k.CurFeeState.GetCurrentBlockHeight()-2 { // we do not support historical queries since we only have current BaseFee in memory
 		return nil, types.ErrUnsupportedQueryParams
 	}
 

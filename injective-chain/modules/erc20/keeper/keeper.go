@@ -20,15 +20,18 @@ import (
 	evmtypes "github.com/InjectiveLabs/injective-core/injective-chain/modules/evm/types"
 
 	"github.com/InjectiveLabs/injective-core/injective-chain/modules/erc20/types"
+	permissionstypes "github.com/InjectiveLabs/injective-core/injective-chain/modules/permissions/types"
 )
 
 type Keeper struct {
 	storeKey storetypes.StoreKey
 
-	bankKeeper    types.BankKeeper
-	evmKeeper     types.EVMKeeper
-	accountKeeper types.AccountKeeper
-	tfKeeper      types.TokenFactoryKeeper
+	bankKeeper          types.BankKeeper
+	evmKeeper           types.EVMKeeper
+	accountKeeper       types.AccountKeeper
+	tfKeeper            types.TokenFactoryKeeper
+	communityPoolKeeper types.CommunityPoolKeeper
+	permissionsKeeper   types.PermissionsKeeper
 
 	moduleAddress string
 	authority     string
@@ -41,16 +44,20 @@ func NewKeeper(
 	bankKeeper types.BankKeeper,
 	accountKeeper types.AccountKeeper,
 	tfKeeper types.TokenFactoryKeeper,
+	communityPoolKeeper types.CommunityPoolKeeper,
+	permissionsKeeper types.PermissionsKeeper,
 	authority string,
 ) Keeper {
 	return Keeper{
-		storeKey:      storeKey,
-		evmKeeper:     evmKeeper,
-		bankKeeper:    bankKeeper,
-		accountKeeper: accountKeeper,
-		tfKeeper:      tfKeeper,
-		moduleAddress: authtypes.NewModuleAddress(types.ModuleName).String(),
-		authority:     authority,
+		storeKey:            storeKey,
+		evmKeeper:           evmKeeper,
+		bankKeeper:          bankKeeper,
+		accountKeeper:       accountKeeper,
+		tfKeeper:            tfKeeper,
+		communityPoolKeeper: communityPoolKeeper,
+		permissionsKeeper:   permissionsKeeper,
+		moduleAddress:       authtypes.NewModuleAddress(types.ModuleName).String(),
+		authority:           authority,
 	}
 }
 
@@ -74,6 +81,7 @@ func (k Keeper) createTokenPair(ctx sdk.Context, sender sdk.AccAddress, pair *ty
 
 // createTokenPairTokenFactory creates pair for token factory denoms. Only denom admin or governance can do that.
 // Sender has an option to provide their own deployed ERC20 contract, or, if empty, the standard MintBurnOwnable ERC-20 implementation will be deployed.
+// If the denom has permissions with disabled minting/burning/superBurning actions, then fix the implementation to FixedSupplyERC20.
 func (k Keeper) createTokenPairTokenFactory(c context.Context, sender sdk.AccAddress, pair *types.TokenPair) error {
 	ctx := sdk.UnwrapSDKContext(c)
 	// check rights
@@ -84,13 +92,39 @@ func (k Keeper) createTokenPairTokenFactory(c context.Context, sender sdk.AccAdd
 	if sender.String() != metadata.Admin && sender.String() != k.authority {
 		return errors.Wrap(types.ErrUnauthorized, "only token factory denom admin can create erc20 pair for it")
 	}
+
+	var (
+		isMintingDisabled      bool
+		isBurningDisabled      bool
+		isSuperBurningDisabled bool
+	)
+
+	if k.permissionsKeeper.HasNamespace(ctx, pair.BankDenom) {
+		isMintingDisabled = k.permissionsKeeper.IsActionDisabledByPolicy(ctx, pair.BankDenom, permissionstypes.Action_MINT)
+		isBurningDisabled = k.permissionsKeeper.IsActionDisabledByPolicy(ctx, pair.BankDenom, permissionstypes.Action_BURN)
+		isSuperBurningDisabled = k.permissionsKeeper.IsActionDisabledByPolicy(ctx, pair.BankDenom, permissionstypes.Action_SUPER_BURN)
+	}
+
+	isFixedSupply := isMintingDisabled || isBurningDisabled || isSuperBurningDisabled
+
 	// deploy ERC20 contract if one was not provided in the msg
 	if pair.Erc20Address == "" {
-		contractAddr, err := k.DeploySmartContract(c, bank.MintBurnBankERC20MetaData, sender, common.BytesToAddress(sender.Bytes()), "", "", uint8(0))
+		var (
+			contractAddr common.Address
+			err          error
+		)
+		if isFixedSupply {
+			contractAddr, err = k.DeploySmartContract(c, bank.FixedSupplyBankERC20MetaData, sender, "", "", uint8(0), big.NewInt(0))
+		} else {
+			contractAddr, err = k.DeploySmartContract(c, bank.MintBurnBankERC20MetaData, sender, common.BytesToAddress(sender.Bytes()), "", "", uint8(0))
+		}
 		if err != nil {
 			return errors.Wrap(types.ErrUploadERC20Contract, err.Error())
 		}
+
 		pair.Erc20Address = contractAddr.String()
+	} else if isFixedSupply {
+		return errors.Wrap(types.ErrInvalidERC20Address, "denom has disabled Mint/Burn/SuperBurn permissions, can't use custom ERC20 implementation")
 	}
 
 	k.storeTokenPair(ctx, *pair)

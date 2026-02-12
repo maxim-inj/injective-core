@@ -4,7 +4,6 @@ import (
 	"cosmossdk.io/log"
 	storetypes "cosmossdk.io/store/types"
 	"github.com/InjectiveLabs/metrics"
-	cmtproto "github.com/cometbft/cometbft/api/cometbft/types/v1"
 	"github.com/cosmos/cosmos-sdk/codec"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	consensustypes "github.com/cosmos/cosmos-sdk/x/consensus/types"
@@ -17,10 +16,9 @@ type Keeper struct {
 	storeKey storetypes.StoreKey
 	cdc      codec.BinaryCodec
 
-	consensusKeeper  types.ConsensusKeeper
-	dataDir          string
-	cachedConsParams cmtproto.ConsensusParams
-	CurFeeState      *mempool1559.FeeState
+	consensusKeeper types.ConsensusKeeper
+	dataDir         string
+	CurFeeState     *mempool1559.FeeState
 
 	svcTags   metrics.Tags
 	authority string

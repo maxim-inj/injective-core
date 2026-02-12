@@ -1,0 +1,14 @@
+version: 2
+projectIgnorePaths:
+  - ./peggo/test/ethereum/
+  - ./peggo/solidity/subgraph/
+  - ./injective-chain/modules/evm/tests/solidity/suites/storage/
+  - ./injective-chain/modules/evm/tests/solidity/suites/staking/
+  - ./injective-chain/modules/evm/tests/solidity/suites/proxy/
+  - ./injective-chain/modules/evm/tests/solidity/suites/opcode/
+  - ./injective-chain/modules/evm/tests/solidity/suites/initializable/
+  - ./injective-chain/modules/evm/tests/solidity/suites/initializable-buidler/
+  - ./injective-chain/modules/evm/tests/solidity/suites/exception/
+  - ./injective-chain/modules/evm/tests/solidity/suites/eip1559/
+  - ./injective-chain/modules/evm/tests/solidity/suites/basic/
+  - ./injective-chain/modules/evm/tests/solidity/

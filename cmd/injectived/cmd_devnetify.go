@@ -19,6 +19,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/xlab/closer"
 
+	"github.com/InjectiveLabs/injective-core/cmd/injectived/config"
 	"github.com/InjectiveLabs/injective-core/injective-chain/app"
 	streamserver "github.com/InjectiveLabs/injective-core/injective-chain/stream/server"
 )
@@ -71,7 +72,7 @@ ExchangeParams:
 		RunE: func(cmd *cobra.Command, args []string) error {
 			serverCtx := server.GetServerContextFromCmd(cmd)
 			clientCtx, err := client.GetClientQueryContext(cmd)
-			config := serverCtx.Config
+			cmtConfig := serverCtx.Config
 
 			waitForNodeStartAndNextBlock, err := cmd.Flags().GetDuration(flagWaitForNewBlock)
 			if err != nil {
@@ -101,8 +102,8 @@ ExchangeParams:
 				logger.Warn("Path to devnet validators home dirs not specified or wrong, falling back to single validator devnet.")
 
 				newValidatorPV, err := pvm.LoadOrGenFilePV(
-					config.PrivValidatorKeyFile(),
-					config.PrivValidatorStateFile(),
+					cmtConfig.PrivValidatorKeyFile(),
+					cmtConfig.PrivValidatorStateFile(),
 					func() (cmtcrypto.PrivKey, error) { return cmted22519.GenPrivKey(), nil },
 				)
 				if err != nil {
@@ -162,11 +163,16 @@ ExchangeParams:
 				return errors.Wrap(err, "failed to get and validate config")
 			}
 
+			appCfg, err := config.GetConfig(serverCtx.Viper)
+			if err != nil {
+				return errors.Wrap(err, "failed to parse app config")
+			}
+
 			serverCtx.Viper.Set(streamserver.FlagStreamServerBufferCapacity, 1)
 			serverCtx.Viper.Set(streamserver.FlagStreamPublisherBufferCapacity, 1)
 
 			go func() {
-				err = startInProcess(serverCtx, svrCfg, clientCtx, sdkApp, nil, server.StartCmdOptions{})
+				err = startInProcess(serverCtx, svrCfg, clientCtx, sdkApp, appCfg, nil, server.StartCmdOptions{})
 			}()
 
 			<-time.After(waitForNodeStartAndNextBlock)

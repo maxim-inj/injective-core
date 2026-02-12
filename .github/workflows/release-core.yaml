@@ -1,0 +1,196 @@
+name: Release binaries on Github under InjectiveFoundation/injective-core
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag
+        required: true
+      release_name:
+        description: Release name e.g. `v1.17.0` or  `v1.18.0-beta`
+        required: true
+      body_file_path:
+        description: Path where to get the body file for the release (./injective-core-prerelease/.github/RELEASE_TEMPLATE.md)
+        default: "./injective-core-prerelease/.github/RELEASE_TEMPLATE.md"
+
+env:
+  SOURCE_REPO: injective-core-prerelease
+  TARGET_OWNER: InjectiveFoundation
+  TARGET_REPO: injective-core
+
+jobs:
+  setup-variables:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Set vars
+        id: set-vars
+        run: |
+          TAG="${{ inputs.tag }}"
+          if [[ -z "$TAG" ]]; then
+            echo "tag input must be provided"
+            exit 1
+          fi
+          RELEASE_SUFFIX=$(date '+%s')
+          RELEASE_TAG="${TAG}-${RELEASE_SUFFIX}"
+          RELEASE_NAME="${{ github.event.inputs.release_name }}-${RELEASE_SUFFIX}"
+
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "release_tag=$RELEASE_TAG" >> $GITHUB_OUTPUT
+          echo "release_name=$RELEASE_NAME" >> $GITHUB_OUTPUT
+
+          if [[ "${{ github.event.inputs.body_file_path }}" != '' ]]; then
+            BODY_FILE_PATH=${{ github.event.inputs.body_file_path }}
+          else
+            BODY_FILE_PATH=./$SOURCE_REPO/.github/RELEASE_TEMPLATE.md
+          fi
+          echo "body_file_path=$BODY_FILE_PATH" >> $GITHUB_OUTPUT
+    outputs:
+      TAG: ${{ steps.set-vars.outputs.tag }}
+      RELEASE_TAG: ${{ steps.set-vars.outputs.release_tag }}
+      RELEASE_NAME: ${{ steps.set-vars.outputs.release_name }}
+      BODY_FILE_PATH: ${{ steps.set-vars.outputs.body_file_path }}
+
+  setup-github-release:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    needs: setup-variables
+    steps:
+      - name: Create Release
+        id: create_release
+        uses: ncipollo/release-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+        with:
+          tag: ${{ needs.setup-variables.outputs.RELEASE_TAG }}
+          name: ${{ needs.setup-variables.outputs.RELEASE_NAME }}
+          body: Release artifacts are being built and uploaded. Notes will be updated automatically.
+          draft: false
+          prerelease: false
+          token: ${{ secrets.GH_TOKEN }}
+          owner: ${{ env.TARGET_OWNER }}
+          repo: ${{ env.TARGET_REPO }}
+    outputs:
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
+
+  linux-amd64:
+    runs-on: ubuntu-22.04
+    defaults:
+      run:
+        shell: bash -eo pipefail {0}
+    needs: [setup-variables, setup-github-release]
+    timeout-minutes: 20
+    steps:
+      - name: Checkout injective-core
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository }}
+          path: ./${{ env.SOURCE_REPO }}
+          ref: ${{ needs.setup-variables.outputs.TAG }}
+          token: ${{ github.token }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Setup Go with cache
+        id: main-go-cache
+        uses: magnetikonline/action-golang-cache@v5
+        with:
+          go-version-file: ./${{ env.SOURCE_REPO }}/go.mod
+          cache-key-suffix: main
+
+      - name: Build binaries and collect version metadata
+        id: build
+        run: |
+          mkdir -p out
+          export CUR_DIR=$PWD
+          export GOBIN=$CUR_DIR/out
+          cd ./${{ env.SOURCE_REPO }}
+          make install-ci
+          SOURCE_COMMIT=$(git rev-parse --short=7 HEAD)
+          cd $GOBIN
+          INJECTIVED_VERSION_OUTPUT="$(./injectived version 2>&1)"
+          PEGGO_VERSION_OUTPUT="$(./peggo version 2>&1)"
+
+          INJECTIVED_COMPILED_AT="$(echo "$INJECTIVED_VERSION_OUTPUT" | sed -nE 's/.*Compiled at ([0-9]{8}-[0-9]{4}).*/\1/p' | head -n1)"
+          PEGGO_COMPILED_AT="$(echo "$PEGGO_VERSION_OUTPUT" | sed -nE 's/.*Compiled at ([0-9]{8}-[0-9]{4}).*/\1/p' | head -n1)"
+
+          if [[ -z "$INJECTIVED_COMPILED_AT" ]]; then
+            echo "Failed to parse injectived compile timestamp from version output"
+            echo "$INJECTIVED_VERSION_OUTPUT"
+            exit 1
+          fi
+
+          if [[ -z "$PEGGO_COMPILED_AT" ]]; then
+            echo "Failed to parse peggo compile timestamp from version output"
+            echo "$PEGGO_VERSION_OUTPUT"
+            exit 1
+          fi
+
+          WASMVM_SO=$(ldd injectived | grep libwasmvm.x86_64.so | awk '{ print $3 }')
+          cp $WASMVM_SO .
+          zip linux-amd64.zip injectived peggo libwasmvm.x86_64.so
+          mv linux-amd64.zip $CUR_DIR
+
+          echo "source_commit=$SOURCE_COMMIT" >> $GITHUB_OUTPUT
+          echo "injectived_compiled_at=$INJECTIVED_COMPILED_AT" >> $GITHUB_OUTPUT
+          echo "peggo_compiled_at=$PEGGO_COMPILED_AT" >> $GITHUB_OUTPUT
+        env:
+          GOARCH: amd64
+          GOOS: linux
+
+      - name: Upload Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+        with:
+          upload_url: ${{ needs.setup-github-release.outputs.upload_url }}
+          asset_path: ./linux-amd64.zip
+          asset_name: linux-amd64.zip
+          asset_content_type: application/zip
+
+      - name: Render release notes from template
+        run: |
+          TEMPLATE_PATH="${{ needs.setup-variables.outputs.BODY_FILE_PATH }}"
+          OUTPUT_PATH="./release_body.md"
+
+          if [[ ! -f "$TEMPLATE_PATH" ]]; then
+            echo "Release template not found at $TEMPLATE_PATH"
+            exit 1
+          fi
+
+          TAG="${{ needs.setup-variables.outputs.TAG }}"
+          RELEASE_TAG="${{ needs.setup-variables.outputs.RELEASE_TAG }}"
+          SOURCE_COMMIT="${{ steps.build.outputs.source_commit }}"
+          INJECTIVED_COMPILED_AT="${{ steps.build.outputs.injectived_compiled_at }}"
+          PEGGO_COMPILED_AT="${{ steps.build.outputs.peggo_compiled_at }}"
+
+          export TAG RELEASE_TAG SOURCE_COMMIT INJECTIVED_COMPILED_AT PEGGO_COMPILED_AT
+          perl -pe '
+            s/\$\$\{\{TAG\}\}/$ENV{TAG}/g;
+            s/\$\$\{\{RELEASE_TAG\}\}/$ENV{RELEASE_TAG}/g;
+            s/\$\$\{\{SOURCE_COMMIT\}\}/$ENV{SOURCE_COMMIT}/g;
+            s/\$\$\{\{INJECTIVED_COMPILED_AT\}\}/$ENV{INJECTIVED_COMPILED_AT}/g;
+            s/\$\$\{\{PEGGO_COMPILED_AT\}\}/$ENV{PEGGO_COMPILED_AT}/g;
+          ' "$TEMPLATE_PATH" > "$OUTPUT_PATH"
+
+      - name: Update Release Body
+        uses: ncipollo/release-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+        with:
+          allowUpdates: true
+          tag: ${{ needs.setup-variables.outputs.RELEASE_TAG }}
+          name: ${{ needs.setup-variables.outputs.RELEASE_NAME }}
+          bodyFile: ./release_body.md
+          draft: false
+          prerelease: false
+          token: ${{ secrets.GH_TOKEN }}
+          owner: ${{ env.TARGET_OWNER }}
+          repo: ${{ env.TARGET_REPO }}
+
+      - name: Save Golang cache
+        if: always()
+        uses: actions/cache/save@v3
+        with:
+          path: |
+            ${{ steps.main-go-cache.outputs.build-cache-path }}
+            ${{ steps.main-go-cache.outputs.module-cache-path }}
+          key: ${{ steps.main-go-cache.outputs.cache-key }}

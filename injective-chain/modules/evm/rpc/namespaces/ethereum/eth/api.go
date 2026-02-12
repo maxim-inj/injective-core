@@ -433,9 +433,8 @@ func (e *PublicAPI) GetTransactionLogs(txHash common.Hash) ([]*ethtypes.Log, err
 	}
 
 	// parse tx logs from events
-	logs, err := evmtypes.DecodeMsgLogsFromEvents(
+	logs, err := evmtypes.DecodeMsgLogs(
 		cometBlockResult.TxResults[res.TxIndex].Data,
-		cometBlockResult.TxResults[res.TxIndex].Events,
 		int(res.MsgIndex),
 		uint64(cometBlockResult.Height),
 	)

@@ -210,7 +210,7 @@ func ShouldIgnoreGasUsed(res *abci.ExecTxResult) bool {
 func GetLogsFromBlockResults(blockRes *cmrpctypes.ResultBlockResults) ([][]*ethtypes.Log, error) {
 	blockLogs := [][]*ethtypes.Log{}
 	for _, txResult := range blockRes.TxResults {
-		logs, err := evmtypes.DecodeTxLogsFromEvents(txResult.Data, txResult.Events, uint64(blockRes.Height))
+		logs, err := evmtypes.DecodeTxLogs(txResult.Data, uint64(blockRes.Height))
 		if err != nil {
 			return nil, err
 		}

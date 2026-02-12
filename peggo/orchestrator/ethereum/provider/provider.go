@@ -4,6 +4,7 @@ import (
 	"context"
 	"math/big"
 
+	"github.com/InjectiveLabs/coretracer"
 	"github.com/pkg/errors"
 
 	"github.com/ethereum/go-ethereum"
@@ -14,8 +15,6 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethereum/go-ethereum/rpc"
-
-	"github.com/InjectiveLabs/metrics"
 )
 
 type EVMProvider interface {
@@ -42,32 +41,28 @@ type EVMProviderWithRet interface {
 type evmProviderWithRet struct {
 	*ethclient.Client
 	rc      *rpc.Client
-	svcTags metrics.Tags
+	svcTags coretracer.Tags
 }
 
 func NewEVMProvider(rc *rpc.Client) EVMProviderWithRet {
 	return &evmProviderWithRet{
-		Client: ethclient.NewClient(rc),
-		rc:     rc,
-		svcTags: metrics.Tags{
-			"svc": string("eth_provider"),
-		},
+		Client:  ethclient.NewClient(rc),
+		rc:      rc,
+		svcTags: coretracer.NewTag("svc", "eth_provider"),
 	}
 }
 
 func (p *evmProviderWithRet) SendTransactionWithRet(ctx context.Context, tx *types.Transaction) (txHash common.Hash, err error) {
-	metrics.ReportFuncCall(p.svcTags)
-	doneFn := metrics.ReportFuncTiming(p.svcTags)
-	defer doneFn()
+	defer coretracer.Trace(&ctx, p.svcTags)()
 
 	data, err := rlp.EncodeToBytes(tx)
 	if err != nil {
-		metrics.ReportFuncError(p.svcTags)
+		coretracer.TraceError(ctx, err)
 		return common.Hash{}, err
 	}
 
 	if err := p.rc.CallContext(ctx, &txHash, "eth_sendRawTransaction", hexutil.Encode(data)); err != nil {
-		metrics.ReportFuncError(p.svcTags)
+		coretracer.TraceError(ctx, err)
 		return common.Hash{}, err
 	}
 

@@ -168,7 +168,7 @@ reviews:
 
     # Base branches (other than the default branch) to review. Accepts regex patterns. Use '.*' to match all branches.
     # Default: []
-    base_branches: []
+    base_branches: ["release\/v.*"]
 
     # Ignore reviewing pull requests by these usernames. These should match the Git platform usernames exactly, not the email addresses.
     # Default: []

@@ -76,43 +76,6 @@ func GrantPriceFeederPrivilege(net *network.Network, clientCtx client.Context, b
 	return govtestutil.MsgVote(clientCtx, from.String(), proposalID, "yes")
 }
 
-func GrantBandOraclePrivilege(net *network.Network, clientCtx client.Context, relayers string, from fmt.Stringer, extraArgs ...string) (testutil.BufferWriter, error) {
-	args := []string{
-		relayers,
-		fmt.Sprintf("--%s=%s", govcli.FlagTitle, "grant price feeder privilege proposal"),
-		fmt.Sprintf("--%s=%s", govcli.FlagDescription, "Where is the title!?"),
-		fmt.Sprintf("--%s=%s", govcli.FlagDeposit, sdk.NewCoin(sdk.DefaultBondDenom, govtypes.DefaultMinDepositTokens).String()),
-		fmt.Sprintf("--%s=%s", flags.FlagFrom, from.String()),
-		fmt.Sprintf("--%s=true", flags.FlagSkipConfirmation),
-		fmt.Sprintf("--%s=%s", flags.FlagFees, sdk.NewCoins(sdk.NewCoin(sdk.DefaultBondDenom, math.NewInt(10))).String()),
-	}
-
-	args = append(args, commonArgs...)
-
-	cmd := cli.NewGrantBandOraclePrivilegeProposalTxCmd()
-	output, err := clitestutil.ExecTestCLICmd(clientCtx, cmd, append(args, extraArgs...))
-	if err != nil {
-		return output, err
-	}
-
-	txResp := sdk.TxResponse{}
-	err = clientCtx.Codec.UnmarshalJSON(output.Bytes(), &txResp)
-	if err != nil {
-		return output, err
-	}
-	if len(txResp.Logs) == 0 {
-		return output, errors.New("proposal log does not exist")
-	}
-
-	if txResp.Logs[0].Events[4].Attributes[0].Key != "proposal_id" {
-		return output, errors.New("proposal_id event is not set in correct place")
-	}
-
-	proposalID := txResp.Logs[0].Events[4].Attributes[0].Value
-	output, err = govtestutil.MsgVote(clientCtx, from.String(), proposalID, "yes")
-	return output, err
-}
-
 // TODO: add helper for below proposals if required
 // - NewRevokePriceFeederPrivilegeProposalTxCmd
 // - NewRevokeBandOraclePrivilegeProposalTxCmd
@@ -148,17 +111,4 @@ func MsgRelayPriceFeedPrice(net *network.Network, clientCtx client.Context, base
 	}
 
 	return output, err
-}
-
-func MsgRelayBandRates(clientCtx client.Context, symbols, rates, resolveTimes, requestIDs string, from fmt.Stringer, extraArgs ...string) (testutil.BufferWriter, error) {
-	args := []string{
-		symbols, rates, resolveTimes, requestIDs,
-		fmt.Sprintf("--%s=%s", flags.FlagFrom, from.String()),
-	}
-
-	args = append(args, commonArgs...)
-
-	cmd := cli.NewRelayBandRatesTxCmd()
-
-	return clitestutil.ExecTestCLICmd(clientCtx, cmd, append(args, extraArgs...))
 }

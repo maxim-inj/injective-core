@@ -51,6 +51,8 @@ func (k *Keeper) NewEVM(
 		BlockNumber: cfg.BlockNumber,
 		Time:        cfg.BlockTime,
 		Difficulty:  cfg.Difficulty,
+		BaseFee:     big.NewInt(0),
+		BlobBaseFee: big.NewInt(0),
 		Random:      cfg.Random,
 	}
 	if cfg.BlockOverrides != nil {
@@ -161,6 +163,9 @@ func (k *Keeper) ApplyTransaction(ctx sdk.Context, msgEth *types.MsgEthereumTx) 
 	}
 
 	msg := msgEth.AsMessage()
+
+	// Decline MsgEthereumTx that has GasLimit higher than tx ctx.RemainingGas() to prevent chain halt via unbounded EVM execution
+	// via bypassing EVM antehandlers (through wasm/authz/ica/etc)
 	if msg.GasLimit > ctx.GasMeter().GasRemaining() {
 		return nil, errorsmod.Wrap(types.ErrGasOverflow, "MsgEthereumTx GasLimit is higher than remaining tx GasLimit")
 	}
@@ -168,7 +173,7 @@ func (k *Keeper) ApplyTransaction(ctx sdk.Context, msgEth *types.MsgEthereumTx) 
 	// snapshot to contain the tx processing and post-processing in same scope
 	var commit func()
 	tmpCtx := ctx
-	if k.hooks != nil {
+	if k.hook != nil {
 		// Create a cache context to revert state when tx hooks fails,
 		// the cache context is only committed when both tx and hooks executed successfully.
 		// Didn't use `Snapshot` because the context stack has exponential complexity on certain operations,
@@ -448,6 +453,7 @@ func (k *Keeper) ApplyMessageWithConfig(
 
 	// refund gas
 	gasUsed = msg.GasLimit - leftoverGas
+	executionGasUsed := gasUsed
 	leftoverGas += GasToRefund(stateDB.GetRefund(), gasUsed, refundQuotient)
 
 	// EVM execution error needs to be available for the JSON-RPC client
@@ -468,11 +474,12 @@ func (k *Keeper) ApplyMessageWithConfig(
 	}
 
 	return &types.MsgEthereumTxResponse{
-		GasUsed:   gasUsed,
-		VmError:   vmError,
-		Ret:       ret,
-		Logs:      types.NewLogsFromEth(stateDB.Logs()),
-		Hash:      cfg.TxConfig.TxHash.Hex(),
-		BlockHash: ctx.HeaderHash(),
+		GasUsed:          gasUsed,
+		VmError:          vmError,
+		Ret:              ret,
+		Logs:             types.NewLogsFromEth(stateDB.Logs()),
+		Hash:             cfg.TxConfig.TxHash.Hex(),
+		BlockHash:        ctx.HeaderHash(),
+		ExecutionGasUsed: executionGasUsed,
 	}, nil
 }

@@ -2,25 +2,35 @@ package helpers
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/require"
-
-	"github.com/strangelove-ventures/interchaintest/v8/chain/cosmos"
-	"github.com/strangelove-ventures/interchaintest/v8/ibc"
-
-	"github.com/ethereum/go-ethereum/common"
-
 	"cosmossdk.io/math"
+	exchangev2 "github.com/InjectiveLabs/sdk-go/chain/exchange/types/v2"
+	insurancetypes "github.com/InjectiveLabs/sdk-go/chain/insurance/types"
+	oracletypes "github.com/InjectiveLabs/sdk-go/chain/oracle/types"
+	tftypes "github.com/InjectiveLabs/sdk-go/chain/tokenfactory/types"
+	abciv1 "github.com/cometbft/cometbft/api/cometbft/abci/v1"
+	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
-	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	govv1 "github.com/cosmos/cosmos-sdk/x/gov/types/v1"
+	govv1beta1 "github.com/cosmos/cosmos-sdk/x/gov/types/v1beta1"
+	"github.com/strangelove-ventures/interchaintest/v8/chain/cosmos"
+	"github.com/strangelove-ventures/interchaintest/v8/ibc"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+)
 
-	exchangetypes "github.com/InjectiveLabs/sdk-go/chain/exchange/types"
+const (
+	proposalStatusTimeout   = 45 * time.Second
+	proposalStatusPollEvery = 500 * time.Millisecond
 )
 
 type ExchangeSetupSuite struct {
@@ -46,30 +56,118 @@ func extractMarketID(stdout []byte) (string, error) {
 	return resp.Markets[0].MarketID, nil
 }
 
-func ExchangeSetup(t *testing.T, ctx context.Context, chain *cosmos.CosmosChain, user1, user2 ibc.Wallet) ExchangeSetupSuite {
-	userAddress := user1.FormattedAddress()
-	quoteDenom := fmt.Sprintf("factory/%s/usdt", userAddress)
+// SetupMarketsAndUsers sets up both spot and derivative markets with user wallets funded with quote denom.
+// Returns the launched derivative and spot markets.
+func SetupMarketsAndUsers(
+	t *testing.T,
+	ctx context.Context,
+	chain *cosmos.CosmosChain,
+	marketLauncher ibc.Wallet,
+	userWallets []ibc.Wallet,
+) (*exchangev2.FullDerivativeMarket, *exchangev2.SpotMarket) {
+	t.Helper()
 
-	msgCreateDenom := NewMsgCreateDenom(
-		userAddress,
-		"usdt",
-		"Tether USD",
-		"USDT",
-		6,
-		false,
-	)
-	MustBroadcastMsg(t, chain, ctx, user1, msgCreateDenom)
+	quoteDenom := fmt.Sprintf("factory/%s/usdt", marketLauncher.FormattedAddress())
+	proposalInitialDeposit := math.NewIntWithDecimal(1000, 18)
+	depositCoin := sdk.NewCoin(chain.Config().Denom, proposalInitialDeposit)
 
-	msgMint := NewMsgMint(userAddress, quoteDenom)
-	MustBroadcastMsg(t, chain, ctx, user1, msgMint)
+	// *** Batch 1: Denom, Mints, Setup Proposals ***
+	prepareAndBroadcastSetupBatch(t, ctx, chain, marketLauncher, userWallets, quoteDenom, depositCoin)
 
-	proposal := &exchangetypes.BatchExchangeModificationProposal{
+	// *** Batch 2: Relay, Insurance, Spot Launch, Perp Launch ***
+	prepareAndBroadcastLaunchBatch(t, ctx, chain, marketLauncher, quoteDenom, depositCoin)
+
+	// *** Query Markets ***
+	// Create gRPC connection and query client
+	conn, err := grpc.NewClient(chain.GetHostGRPCAddress(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err)
+	defer conn.Close()
+
+	queryClient := exchangev2.NewQueryClient(conn)
+
+	// Spot Market (from MsgInstantSpotMarketLaunch - available immediately after tx)
+	spotResp, err := QueryRPC(ctx, queryClient.SpotMarkets, &exchangev2.QuerySpotMarketsRequest{})
+	require.NoError(t, err, "error querying spot markets")
+	require.NotEmpty(t, spotResp.Markets)
+
+	// Derivative Market (from Proposal - available after pass)
+	derivResp, err := QueryRPC(ctx, queryClient.DerivativeMarkets, &exchangev2.QueryDerivativeMarketsRequest{})
+	require.NoError(t, err, "error querying derivative markets")
+	require.NotEmpty(t, derivResp.Markets)
+
+	return derivResp.Markets[0], spotResp.Markets[0]
+}
+
+// QueryExchangeParams queries exchange params using gRPC
+func QueryExchangeParams(ctx context.Context, chain *cosmos.CosmosChain) (*exchangev2.Params, error) {
+	conn, err := grpc.NewClient(chain.GetHostGRPCAddress(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+
+	queryClient := exchangev2.NewQueryClient(conn)
+
+	res, err := QueryRPC(ctx, queryClient.QueryExchangeParams, &exchangev2.QueryExchangeParamsRequest{})
+	if err != nil {
+		return nil, err
+	}
+
+	return &res.Params, nil
+}
+
+func prepareAndBroadcastSetupBatch(
+	t *testing.T,
+	ctx context.Context,
+	chain *cosmos.CosmosChain,
+	marketLauncher ibc.Wallet,
+	userWallets []ibc.Wallet,
+	quoteDenom string,
+	depositCoin sdk.Coin,
+) {
+	t.Helper()
+
+	txOpts := []cosmos.FactoryOpt{WithGas(2_000_000)}
+
+	msgs := []sdk.Msg{}
+
+	// 1. Create Quote Denom
+	createDenom := &tftypes.MsgCreateDenom{
+		Sender:         marketLauncher.FormattedAddress(),
+		Subdenom:       "usdt",
+		Name:           "Tether USD",
+		Symbol:         "USDT",
+		Decimals:       6,
+		AllowAdminBurn: false,
+	}
+	msgs = append(msgs, createDenom)
+
+	// 2. Mint to Launcher
+	mintLauncher := &tftypes.MsgMint{
+		Sender:   marketLauncher.FormattedAddress(),
+		Amount:   sdk.NewCoin(quoteDenom, math.NewInt(1000000000000000000)),
+		Receiver: marketLauncher.FormattedAddress(),
+	}
+	msgs = append(msgs, mintLauncher)
+
+	// 3. Mint to all user wallets
+	for _, wallet := range userWallets {
+		mintUser := &tftypes.MsgMint{
+			Sender:   marketLauncher.FormattedAddress(),
+			Amount:   sdk.NewCoin(quoteDenom, math.NewInt(1000000000000000000)),
+			Receiver: wallet.FormattedAddress(),
+		}
+		msgs = append(msgs, mintUser)
+	}
+
+	// 4. Proposal: Update Denom Min Notional
+	propMinNotional := &exchangev2.BatchExchangeModificationProposal{
 		Title:       "Update Denom Min Notional",
 		Description: "Set min notional for USDT",
-		DenomMinNotionalProposal: &exchangetypes.DenomMinNotionalProposal{
+		DenomMinNotionalProposal: &exchangev2.DenomMinNotionalProposal{
 			Title:       ".",
 			Description: ".",
-			DenomMinNotionals: []*exchangetypes.DenomMinNotional{
+			DenomMinNotionals: []*exchangev2.DenomMinNotional{
 				{
 					Denom:       quoteDenom,
 					MinNotional: math.LegacyNewDec(1),
@@ -77,14 +175,106 @@ func ExchangeSetup(t *testing.T, ctx context.Context, chain *cosmos.CosmosChain,
 			},
 		},
 	}
-	msgProposal := &exchangetypes.MsgBatchExchangeModification{
+	msgPropMinNotional := &exchangev2.MsgBatchExchangeModification{
 		Sender:   authtypes.NewModuleAddress(govtypes.ModuleName).String(),
-		Proposal: proposal,
+		Proposal: propMinNotional,
 	}
-	MustSucceedProposal(t, chain, ctx, user1, msgProposal, "USDT Min Notional")
+	propMinNotionalEncoded, err := codectypes.NewAnyWithValue(msgPropMinNotional)
+	require.NoError(t, err)
 
-	msgInstantSpotMarketLaunch := &exchangetypes.MsgInstantSpotMarketLaunch{
-		Sender:              userAddress,
+	submitPropMinNotional := &govv1.MsgSubmitProposal{
+		InitialDeposit: []sdk.Coin{depositCoin},
+		Proposer:       marketLauncher.FormattedAddress(),
+		Title:          "Update Denom Min Notional",
+		Summary:        "Set min notional for USDT",
+		Messages:       []*codectypes.Any{propMinNotionalEncoded},
+	}
+	msgs = append(msgs, submitPropMinNotional)
+
+	// 5. Proposal: Grant Price Feeder Privilege
+	propPriceFeeder := &oracletypes.GrantPriceFeederPrivilegeProposal{
+		Title:       "Market launcher can relay price",
+		Description: "Market launcher can relay price",
+		Base:        "oracle_base_inj",
+		Quote:       "oracle_quote_usdt",
+		Relayers:    []string{marketLauncher.FormattedAddress()},
+	}
+	submitPropPriceFeeder := &govv1beta1.MsgSubmitProposal{
+		InitialDeposit: sdk.NewCoins(depositCoin),
+		Proposer:       marketLauncher.FormattedAddress(),
+	}
+	require.NoError(t, submitPropPriceFeeder.SetContent(propPriceFeeder))
+	msgs = append(msgs, submitPropPriceFeeder)
+
+	// Broadcast Batch 1
+	txResp := BroadcastTxBlock(t, ctx, chain, marketLauncher, txOpts, msgs...)
+	require.Equal(t, uint32(0), txResp.Code, "failed setup batch: %s", txResp.RawLog)
+
+	// Vote on Batch 1 Proposals
+	propIDs, err := getProposalIDs(txResp.Events)
+	require.NoError(t, err)
+	require.Len(t, propIDs, 2, "expected 2 proposals in setup batch")
+
+	for _, id := range propIDs {
+		txHashes, err := VoteOnProposalAllValidatorsRPC(t, ctx, chain, id, govv1.VoteOption_VOTE_OPTION_YES)
+		require.NoError(t, err)
+		require.NotEmpty(t, txHashes, "expected at least one vote tx hash")
+
+		// wait for the last vote tx to be included in a block
+		// this is patch required because the VoteOnProposalAllValidatorsRPC function create a new tx factory every time
+		// the proper solution would be to create a new struct representing the votes broadcaster, that creates the factory once
+		// but this is the only logic so far sending more than one gov proposal in a TX, there is not need to create the broadcaster yet
+		lastTxHash := txHashes[len(txHashes)-1]
+		_, err = getTxResponseRPC(ctx, chain.Nodes()[0], lastTxHash)
+		require.NoError(t, err, "failed waiting for vote tx %s", lastTxHash)
+	}
+
+	// Wait for pass
+	for _, id := range propIDs {
+		_, err = WaitForProposalStatusByTime(ctx, chain, id, govv1beta1.StatusPassed, proposalStatusTimeout, proposalStatusPollEvery)
+		require.NoError(t, err)
+	}
+}
+
+func prepareAndBroadcastLaunchBatch(
+	t *testing.T,
+	ctx context.Context,
+	chain *cosmos.CosmosChain,
+	marketLauncher ibc.Wallet,
+	quoteDenom string,
+	depositCoin sdk.Coin,
+) {
+	t.Helper()
+
+	txOpts := []cosmos.FactoryOpt{WithGas(2_000_000)}
+
+	msgs := []sdk.Msg{}
+
+	// 1. Relay Price
+	relayPrice := &oracletypes.MsgRelayPriceFeedPrice{
+		Sender: marketLauncher.FormattedAddress(),
+		Base:   []string{"oracle_base_inj"},
+		Quote:  []string{"oracle_quote_usdt"},
+		Price:  []math.LegacyDec{math.LegacyMustNewDecFromStr("10.00")},
+	}
+	msgs = append(msgs, relayPrice)
+
+	// 2. Create Insurance Fund
+	createInsurance := &insurancetypes.MsgCreateInsuranceFund{
+		Sender:         marketLauncher.FormattedAddress(),
+		Ticker:         "inj / usdt",
+		QuoteDenom:     quoteDenom,
+		OracleBase:     "oracle_base_inj",
+		OracleQuote:    "oracle_quote_usdt",
+		OracleType:     oracletypes.OracleType_PriceFeed,
+		Expiry:         -1,
+		InitialDeposit: sdk.NewCoin(quoteDenom, math.NewInt(1000000000)),
+	}
+	msgs = append(msgs, createInsurance)
+
+	// 3. Instant Spot Market Launch
+	spotLaunch := &exchangev2.MsgInstantSpotMarketLaunch{
+		Sender:              marketLauncher.FormattedAddress(),
 		Ticker:              "INJ / USDT",
 		BaseDenom:           "inj",
 		QuoteDenom:          quoteDenom,
@@ -94,99 +284,96 @@ func ExchangeSetup(t *testing.T, ctx context.Context, chain *cosmos.CosmosChain,
 		BaseDecimals:        18,
 		QuoteDecimals:       6,
 	}
-	MustBroadcastMsg(t, chain, ctx, user1, msgInstantSpotMarketLaunch)
+	msgs = append(msgs, spotLaunch)
 
-	stdout, _, err := chain.Validators[0].ExecQuery(ctx, "exchange", "spot-markets", "--chain-id", chain.Config().ChainID)
-	require.NoError(t, err, "error querying spot markets")
-
-	tier1Stake := math.NewInt(100)
-	tier2Stake := math.NewInt(1000)
-
-	proposal = &exchangetypes.BatchExchangeModificationProposal{
-		Title:       "Update Denom Min Notional",
-		Description: "Set min notional for USDT",
-		FeeDiscountProposal: &exchangetypes.FeeDiscountProposal{
-			Title:       ".",
-			Description: ".",
-			Schedule: &exchangetypes.FeeDiscountSchedule{
-				BucketCount:    2,
-				BucketDuration: 30,
-				QuoteDenoms:    []string{quoteDenom},
-				TierInfos: []*exchangetypes.FeeDiscountTierInfo{
-					{
-						MakerDiscountRate: math.LegacyMustNewDecFromStr("0.1"),
-						TakerDiscountRate: math.LegacyMustNewDecFromStr("0.1"),
-						StakedAmount:      tier1Stake,
-						Volume:            math.LegacyMustNewDecFromStr("0.3"),
-					},
-					{
-						MakerDiscountRate: math.LegacyMustNewDecFromStr("0.3"),
-						TakerDiscountRate: math.LegacyMustNewDecFromStr("0.3"),
-						StakedAmount:      tier2Stake,
-						Volume:            math.LegacyMustNewDecFromStr("3"),
-					},
-				},
-				DisqualifiedMarketIds: []string{},
+	// 4. Proposal: Launch Perp Market
+	propPerpLaunch := &exchangev2.PerpetualMarketLaunchProposal{
+		Title:                  "Launch a perp market",
+		Description:            "Launch a pert market",
+		Ticker:                 "inj / usdt",
+		QuoteDenom:             quoteDenom,
+		OracleBase:             "oracle_base_inj",
+		OracleQuote:            "oracle_quote_usdt",
+		OracleScaleFactor:      0,
+		OracleType:             oracletypes.OracleType_PriceFeed,
+		InitialMarginRatio:     math.LegacyNewDecWithPrec(5, 2),
+		MaintenanceMarginRatio: math.LegacyNewDecWithPrec(2, 2),
+		ReduceMarginRatio:      math.LegacyNewDecWithPrec(8, 2),
+		MakerFeeRate:           math.LegacyNewDecWithPrec(1, 3),
+		TakerFeeRate:           math.LegacyNewDecWithPrec(3, 3),
+		MinPriceTickSize:       math.LegacyNewDecWithPrec(1, 4),
+		MinQuantityTickSize:    math.LegacyNewDecWithPrec(1, 4),
+		MinNotional:            math.LegacyOneDec(),
+		OpenNotionalCap: exchangev2.OpenNotionalCap{
+			Cap: &exchangev2.OpenNotionalCap_Uncapped{
+				Uncapped: &exchangev2.OpenNotionalCapUncapped{},
 			},
 		},
+		AdminInfo: &exchangev2.AdminInfo{
+			Admin:            marketLauncher.FormattedAddress(),
+			AdminPermissions: 63, // max perms
+		},
 	}
-	msgProposal = &exchangetypes.MsgBatchExchangeModification{
-		Sender:   authtypes.NewModuleAddress(govtypes.ModuleName).String(),
-		Proposal: proposal,
+	submitPropPerpLaunch := &govv1beta1.MsgSubmitProposal{
+		InitialDeposit: sdk.NewCoins(depositCoin),
+		Proposer:       marketLauncher.FormattedAddress(),
 	}
-	MustSucceedProposal(t, chain, ctx, user1, msgProposal, "Fee Discount Schedule")
+	require.NoError(t, submitPropPerpLaunch.SetContent(propPerpLaunch))
+	msgs = append(msgs, submitPropPerpLaunch)
 
-	vals, err := chain.StakingQueryValidators(ctx, stakingtypes.Bonded.String())
+	// Broadcast Batch 2
+	txResp := BroadcastTxBlock(t, ctx, chain, marketLauncher, txOpts, msgs...)
+	require.Equal(t, uint32(0), txResp.Code, "failed launch batch: %s", txResp.RawLog)
+
+	// Vote on Batch 2 Proposal
+	propIDs, err := getProposalIDs(txResp.Events)
 	require.NoError(t, err)
-	require.NotEmpty(t, vals)
-	stakeMsg := &stakingtypes.MsgDelegate{
-		DelegatorAddress: userAddress,
-		ValidatorAddress: vals[0].OperatorAddress,
-		Amount:           sdk.NewCoin(chain.Config().Denom, tier2Stake),
+	require.Len(t, propIDs, 1, "expected 1 proposal in launch batch")
+
+	txHashes, err := VoteOnProposalAllValidatorsRPC(t, ctx, chain, propIDs[0], govv1.VoteOption_VOTE_OPTION_YES)
+	require.NoError(t, err)
+	require.NotEmpty(t, txHashes, "expected at least one vote tx hash")
+
+	lastTxHash := txHashes[len(txHashes)-1]
+	_, err = getTxResponseRPC(ctx, chain.Nodes()[0], lastTxHash)
+	require.NoError(t, err, "failed waiting for vote tx %s", lastTxHash)
+
+	// Wait for pass
+	_, err = WaitForProposalStatusByTime(ctx, chain, propIDs[0], govv1beta1.StatusPassed, proposalStatusTimeout, proposalStatusPollEvery)
+	require.NoError(t, err)
+}
+
+func getProposalIDs(events []abciv1.Event) ([]uint64, error) {
+	var ids []uint64
+	for _, event := range events {
+		if event.Type != "submit_proposal" {
+			continue
+		}
+		for _, attr := range event.Attributes {
+			keyStr := attr.Key
+			valStr := attr.Value
+
+			// tendermint < v0.37-alpha returns base64 encoded strings in events.
+			if keyStr == "proposal_id" {
+				// value is already plain string
+			} else {
+				kb, err := base64.StdEncoding.DecodeString(keyStr)
+				if err == nil && string(kb) == "proposal_id" {
+					vb, err := base64.StdEncoding.DecodeString(valStr)
+					if err == nil {
+						valStr = string(vb)
+					}
+				} else {
+					continue
+				}
+			}
+
+			id, err := strconv.ParseUint(valStr, 10, 64)
+			if err != nil {
+				return nil, err
+			}
+			ids = append(ids, id)
+		}
 	}
-	MustBroadcastMsg(t, chain, ctx, user1, stakeMsg)
-
-	marketID, err := extractMarketID(stdout)
-	require.NoError(t, err, "error parsing market id")
-
-	defaultSubaccountUser1 := common.BytesToHash(common.RightPadBytes(user1.Address(), 32)).Hex()
-	msgBuy := &exchangetypes.MsgCreateSpotLimitOrder{
-		Sender: userAddress,
-		Order: exchangetypes.SpotOrder{
-			MarketId: marketID,
-			OrderInfo: exchangetypes.OrderInfo{
-				SubaccountId: defaultSubaccountUser1,
-				FeeRecipient: "",
-				Price:        math.LegacyNewDec(2),
-				Quantity:     math.LegacyNewDec(100),
-			},
-			OrderType:    exchangetypes.OrderType_BUY,
-			TriggerPrice: nil,
-		},
-	}
-	MustBroadcastMsg(t, chain, ctx, user1, msgBuy)
-
-	defaultSubaccountUser2 := common.BytesToHash(common.RightPadBytes(user2.Address(), 32)).Hex()
-	msgSell := &exchangetypes.MsgCreateSpotLimitOrder{
-		Sender: user2.FormattedAddress(),
-		Order: exchangetypes.SpotOrder{
-			MarketId: marketID,
-			OrderInfo: exchangetypes.OrderInfo{
-				SubaccountId: defaultSubaccountUser2,
-				FeeRecipient: "",
-				Price:        math.LegacyNewDec(2),
-				Quantity:     math.LegacyNewDec(100),
-			},
-			OrderType:    exchangetypes.OrderType_SELL,
-			TriggerPrice: nil,
-		},
-	}
-	MustBroadcastMsg(t, chain, ctx, user2, msgSell)
-
-	// wait for blocks to finalize
-	time.Sleep(2 * time.Second)
-
-	return ExchangeSetupSuite{
-		MarketID: marketID,
-	}
+	return ids, nil
 }

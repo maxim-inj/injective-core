@@ -8,12 +8,32 @@ import (
 
 const (
 	EVERYONE = "EVERYONE"
-	MaxPerm  = uint32(Action_MINT) | uint32(Action_RECEIVE) | uint32(Action_BURN) | uint32(Action_SEND) | uint32(Action_SUPER_BURN)
+
+	MaxPerm = uint32(Action_MINT) |
+		uint32(Action_RECEIVE) |
+		uint32(Action_BURN) |
+		uint32(Action_SEND) |
+		uint32(Action_SUPER_BURN)
 	// ValidActionsBitmask calculates the valid bitmask for all actions.
-	ValidActionsBitmask uint32 = uint32(Action_MINT | Action_RECEIVE | Action_BURN | Action_SEND | Action_SUPER_BURN | Action_MODIFY_POLICY_MANAGERS | Action_MODIFY_CONTRACT_HOOK | Action_MODIFY_ROLE_PERMISSIONS | Action_MODIFY_ROLE_MANAGERS)
+	ValidActionsBitmask uint32 = uint32(Action_MINT |
+		Action_RECEIVE |
+		Action_BURN |
+		Action_SEND |
+		Action_SUPER_BURN |
+		Action_MODIFY_POLICY_MANAGERS |
+		Action_MODIFY_CONTRACT_HOOK |
+		Action_MODIFY_ROLE_PERMISSIONS |
+		Action_MODIFY_ROLE_MANAGERS)
 	// DisallowedEveryoneActions calculates the disallowed actions for the everyone role.
-	DisallowedEveryoneActions = uint32(Action_MINT | Action_SUPER_BURN | Action_MODIFY_POLICY_MANAGERS | Action_MODIFY_CONTRACT_HOOK | Action_MODIFY_ROLE_PERMISSIONS | Action_MODIFY_ROLE_MANAGERS)
-	MaxRoleNameLength         = 20
+	DisallowedEveryoneActions = uint32(
+		Action_MINT |
+			Action_SUPER_BURN |
+			Action_MODIFY_POLICY_MANAGERS |
+			Action_MODIFY_CONTRACT_HOOK |
+			Action_MODIFY_ROLE_PERMISSIONS |
+			Action_MODIFY_ROLE_MANAGERS)
+
+	MaxRoleNameLength = 20
 )
 
 var Actions = []Action{

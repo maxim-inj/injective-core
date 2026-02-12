@@ -1,0 +1,487 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "stream_response.schema.json",
+  "title": "Stream Response",
+  "description": "JSON-RPC 2.0 response containing chain stream data for a single block",
+  "type": "object",
+  "required": ["jsonrpc", "id", "result"],
+  "properties": {
+    "jsonrpc": {
+      "type": "string",
+      "const": "2.0",
+      "description": "JSON-RPC protocol version"
+    },
+    "id": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Subscription identifier (matches the ID from the subscribe request)"
+    },
+    "result": {
+      "$ref": "#/$defs/streamData"
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "streamData": {
+      "type": "object",
+      "required": ["block_height", "block_time"],
+      "properties": {
+        "block_height": {
+          "type": "string",
+          "pattern": "^[0-9]+$",
+          "description": "Block height (uint64 encoded as string)"
+        },
+        "block_time": {
+          "type": "string",
+          "pattern": "^-?[0-9]+$",
+          "description": "Block timestamp in milliseconds (int64 encoded as string)"
+        },
+        "bank_balances": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/bankBalance"
+          },
+          "description": "Bank balance updates"
+        },
+        "subaccount_deposits": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/subaccountDeposits"
+          },
+          "description": "Subaccount deposit updates"
+        },
+        "spot_trades": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/spotTrade"
+          },
+          "description": "Spot trade updates"
+        },
+        "derivative_trades": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/derivativeTrade"
+          },
+          "description": "Derivative trade updates"
+        },
+        "spot_orders": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/spotOrderUpdate"
+          },
+          "description": "Spot order updates"
+        },
+        "derivative_orders": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/derivativeOrderUpdate"
+          },
+          "description": "Derivative order updates"
+        },
+        "spot_orderbook_updates": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/orderbookUpdate"
+          },
+          "description": "Spot orderbook updates"
+        },
+        "derivative_orderbook_updates": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/orderbookUpdate"
+          },
+          "description": "Derivative orderbook updates"
+        },
+        "positions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/position"
+          },
+          "description": "Position updates"
+        },
+        "oracle_prices": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/oraclePrice"
+          },
+          "description": "Oracle price updates"
+        },
+        "gas_price": {
+          "type": "string",
+          "description": "Current gas price in chain format"
+        },
+        "order_failures": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/orderFailureUpdate"
+          },
+          "description": "Order failure notifications"
+        },
+        "conditional_order_trigger_failures": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/conditionalOrderTriggerFailureUpdate"
+          },
+          "description": "Conditional order trigger failure notifications"
+        }
+      },
+      "additionalProperties": false
+    },
+    "bankBalance": {
+      "type": "object",
+      "properties": {
+        "account": {
+          "type": "string",
+          "description": "Account address"
+        },
+        "balances": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/coin"
+          },
+          "description": "List of coin balances"
+        }
+      },
+      "additionalProperties": true
+    },
+    "coin": {
+      "type": "object",
+      "properties": {
+        "denom": {
+          "type": "string",
+          "description": "Token denomination"
+        },
+        "amount": {
+          "type": "string",
+          "description": "Token amount"
+        }
+      },
+      "additionalProperties": true
+    },
+    "subaccountDeposits": {
+      "type": "object",
+      "properties": {
+        "subaccount_id": {
+          "type": "string",
+          "description": "Subaccount identifier"
+        },
+        "deposits": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/deposit"
+          },
+          "description": "List of deposits"
+        }
+      },
+      "additionalProperties": true
+    },
+    "deposit": {
+      "type": "object",
+      "properties": {
+        "denom": {
+          "type": "string",
+          "description": "Token denomination"
+        },
+        "available_balance": {
+          "type": "string",
+          "description": "Available balance"
+        },
+        "total_balance": {
+          "type": "string",
+          "description": "Total balance"
+        }
+      },
+      "additionalProperties": true
+    },
+    "spotTrade": {
+      "type": "object",
+      "properties": {
+        "market_id": {
+          "type": "string",
+          "description": "Market identifier"
+        },
+        "is_buy": {
+          "type": "boolean",
+          "description": "Whether this is a buy trade"
+        },
+        "execution_type": {
+          "type": "string",
+          "description": "Execution type (e.g., LimitFill, Market)"
+        },
+        "quantity": {
+          "type": "string",
+          "description": "Trade quantity"
+        },
+        "price": {
+          "type": "string",
+          "description": "Trade price"
+        },
+        "subaccount_id": {
+          "type": "string",
+          "description": "Subaccount identifier"
+        },
+        "fee": {
+          "type": "string",
+          "description": "Trade fee"
+        },
+        "order_hash": {
+          "type": "string",
+          "description": "Order hash"
+        },
+        "fee_recipient_address": {
+          "type": "string",
+          "description": "Fee recipient address"
+        },
+        "cid": {
+          "type": "string",
+          "description": "Client order ID"
+        },
+        "trade_id": {
+          "type": "string",
+          "description": "Unique trade identifier"
+        }
+      },
+      "additionalProperties": true
+    },
+    "derivativeTrade": {
+      "type": "object",
+      "properties": {
+        "market_id": {
+          "type": "string",
+          "description": "Market identifier"
+        },
+        "is_buy": {
+          "type": "boolean",
+          "description": "Whether this is a buy trade"
+        },
+        "execution_type": {
+          "type": "string",
+          "description": "Execution type"
+        },
+        "subaccount_id": {
+          "type": "string",
+          "description": "Subaccount identifier"
+        },
+        "position_delta": {
+          "type": "object",
+          "description": "Position delta information"
+        },
+        "payout": {
+          "type": "string",
+          "description": "Trade payout"
+        },
+        "fee": {
+          "type": "string",
+          "description": "Trade fee"
+        },
+        "order_hash": {
+          "type": "string",
+          "description": "Order hash"
+        },
+        "fee_recipient_address": {
+          "type": "string",
+          "description": "Fee recipient address"
+        },
+        "cid": {
+          "type": "string",
+          "description": "Client order ID"
+        },
+        "trade_id": {
+          "type": "string",
+          "description": "Unique trade identifier"
+        }
+      },
+      "additionalProperties": true
+    },
+    "spotOrderUpdate": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "description": "Order status"
+        },
+        "order_hash": {
+          "type": "string",
+          "description": "Order hash"
+        },
+        "cid": {
+          "type": "string",
+          "description": "Client order ID"
+        },
+        "order": {
+          "type": "object",
+          "description": "Order details"
+        }
+      },
+      "additionalProperties": true
+    },
+    "derivativeOrderUpdate": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "description": "Order status"
+        },
+        "order_hash": {
+          "type": "string",
+          "description": "Order hash"
+        },
+        "cid": {
+          "type": "string",
+          "description": "Client order ID"
+        },
+        "order": {
+          "type": "object",
+          "description": "Order details"
+        }
+      },
+      "additionalProperties": true
+    },
+    "orderbookUpdate": {
+      "type": "object",
+      "properties": {
+        "seq": {
+          "type": "string",
+          "pattern": "^[0-9]+$",
+          "description": "Sequence number (uint64 encoded as string)"
+        },
+        "orderbook": {
+          "type": "object",
+          "properties": {
+            "market_id": {
+              "type": "string",
+              "description": "Market identifier"
+            },
+            "buy_levels": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/priceLevel"
+              },
+              "description": "Buy side price levels"
+            },
+            "sell_levels": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/priceLevel"
+              },
+              "description": "Sell side price levels"
+            }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "priceLevel": {
+      "type": "object",
+      "properties": {
+        "price": {
+          "type": "string",
+          "description": "Price level"
+        },
+        "quantity": {
+          "type": "string",
+          "description": "Quantity at this price level"
+        }
+      },
+      "additionalProperties": true
+    },
+    "position": {
+      "type": "object",
+      "properties": {
+        "market_id": {
+          "type": "string",
+          "description": "Market identifier"
+        },
+        "subaccount_id": {
+          "type": "string",
+          "description": "Subaccount identifier"
+        },
+        "is_long": {
+          "type": "boolean",
+          "description": "Whether position is long"
+        },
+        "quantity": {
+          "type": "string",
+          "description": "Position quantity"
+        },
+        "entry_price": {
+          "type": "string",
+          "description": "Entry price"
+        },
+        "margin": {
+          "type": "string",
+          "description": "Position margin"
+        },
+        "cumulative_funding_entry": {
+          "type": "string",
+          "description": "Cumulative funding entry"
+        }
+      },
+      "additionalProperties": true
+    },
+    "oraclePrice": {
+      "type": "object",
+      "properties": {
+        "symbol": {
+          "type": "string",
+          "description": "Oracle symbol"
+        },
+        "price": {
+          "type": "string",
+          "description": "Price value"
+        },
+        "type": {
+          "type": "string",
+          "description": "Oracle type (e.g., stork, pyth)"
+        }
+      },
+      "additionalProperties": true
+    },
+    "orderFailureUpdate": {
+      "type": "object",
+      "properties": {
+        "order_hash": {
+          "type": "string",
+          "description": "Order hash"
+        },
+        "cid": {
+          "type": "string",
+          "description": "Client order ID"
+        },
+        "description": {
+          "type": "string",
+          "description": "Failure description"
+        }
+      },
+      "additionalProperties": true
+    },
+    "conditionalOrderTriggerFailureUpdate": {
+      "type": "object",
+      "properties": {
+        "market_id": {
+          "type": "string",
+          "description": "Market identifier"
+        },
+        "subaccount_id": {
+          "type": "string",
+          "description": "Subaccount identifier"
+        },
+        "order_hash": {
+          "type": "string",
+          "description": "Order hash"
+        },
+        "cid": {
+          "type": "string",
+          "description": "Client order ID"
+        },
+        "description": {
+          "type": "string",
+          "description": "Failure description"
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}
+

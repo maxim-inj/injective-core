@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/InjectiveLabs/coretracer"
 	"github.com/avast/retry-go"
 	cosmostypes "github.com/cosmos/cosmos-sdk/types"
 	gethcommon "github.com/ethereum/go-ethereum/common"
@@ -12,12 +13,11 @@ import (
 	"github.com/InjectiveLabs/injective-core/peggo/orchestrator/cosmos"
 	"github.com/InjectiveLabs/injective-core/peggo/orchestrator/ethereum"
 	"github.com/InjectiveLabs/injective-core/peggo/orchestrator/loops"
-	"github.com/InjectiveLabs/metrics"
 )
 
 // PriceFeed provides token price for a given contract address
 type PriceFeed interface {
-	QueryUSDPrice(address gethcommon.Address) (float64, error)
+	QueryUSDPrice(ctx context.Context, address gethcommon.Address) (float64, error)
 }
 
 type Config struct {
@@ -36,7 +36,7 @@ type Config struct {
 
 type Orchestrator struct {
 	logger      log.Logger
-	svcTags     metrics.Tags
+	svcTags     coretracer.Tags
 	cfg         Config
 	maxAttempts uint
 
@@ -53,7 +53,7 @@ func NewOrchestrator(
 ) (*Orchestrator, error) {
 	o := &Orchestrator{
 		logger:      log.DefaultLogger,
-		svcTags:     metrics.Tags{"svc": "peggy_orchestrator"},
+		svcTags:     coretracer.NewTag("svc", "peggy_orchestrator"),
 		injective:   inj,
 		ethereum:    eth,
 		priceFeed:   priceFeed,

@@ -37,5 +37,9 @@
     "bech32": "^2.0.0",
     "ethereumjs-util": "^7.1.0",
     "truffle": "^5.0.4"
+  },
+  "resolutions": {
+    "@ensdomains/address-encoder": "0.1.7",
+    "crypto-addr-codec": "0.1.7"
   }
 }

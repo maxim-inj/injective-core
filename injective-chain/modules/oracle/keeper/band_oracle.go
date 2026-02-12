@@ -3,40 +3,11 @@ package keeper
 import (
 	"cosmossdk.io/math"
 	"cosmossdk.io/store/prefix"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-
 	"github.com/InjectiveLabs/metrics"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"github.com/InjectiveLabs/injective-core/injective-chain/modules/oracle/types"
 )
-
-type BandKeeper interface {
-	GetBandPriceState(ctx sdk.Context, symbol string) *types.BandPriceState
-	SetBandPriceState(ctx sdk.Context, symbol string, priceState types.BandPriceState)
-	GetAllBandPriceStates(ctx sdk.Context) []types.BandPriceState
-	GetBandReferencePrice(ctx sdk.Context, base string, quote string) *math.LegacyDec
-	IsBandRelayer(ctx sdk.Context, relayer sdk.AccAddress) bool
-	GetAllBandRelayers(ctx sdk.Context) []string
-	SetBandRelayer(ctx sdk.Context, relayer sdk.AccAddress)
-	DeleteBandRelayer(ctx sdk.Context, relayer sdk.AccAddress)
-}
-
-// IsBandRelayer checks that the relayer has been authorized.
-func (k *Keeper) IsBandRelayer(ctx sdk.Context, relayer sdk.AccAddress) bool {
-	ctx, doneFn := metrics.ReportFuncCallAndTimingSdkCtx(ctx, k.svcTags)
-	defer doneFn()
-
-	return k.getStore(ctx).Has(types.GetBandRelayerStoreKey(relayer))
-}
-
-// SetBandRelayer sets the band relayer.
-func (k *Keeper) SetBandRelayer(ctx sdk.Context, relayer sdk.AccAddress) {
-	ctx, doneFn := metrics.ReportFuncCallAndTimingSdkCtx(ctx, k.svcTags)
-	defer doneFn()
-
-	// set boolean indicator
-	k.getStore(ctx).Set(types.GetBandRelayerStoreKey(relayer), []byte{})
-}
 
 // GetAllBandRelayers fetches all band price relayers.
 func (k *Keeper) GetAllBandRelayers(ctx sdk.Context) []string {
@@ -58,14 +29,6 @@ func (k *Keeper) GetAllBandRelayers(ctx sdk.Context) []string {
 	return bandRelayers
 }
 
-// DeleteBandRelayer deletes the band relayer.
-func (k *Keeper) DeleteBandRelayer(ctx sdk.Context, relayer sdk.AccAddress) {
-	ctx, doneFn := metrics.ReportFuncCallAndTimingSdkCtx(ctx, k.svcTags)
-	defer doneFn()
-
-	k.getStore(ctx).Delete(types.GetBandRelayerStoreKey(relayer))
-}
-
 // GetBandPriceState reads the stored price state.
 func (k *Keeper) GetBandPriceState(ctx sdk.Context, symbol string) *types.BandPriceState {
 	ctx, doneFn := metrics.ReportFuncCallAndTimingSdkCtx(ctx, k.svcTags)
@@ -79,20 +42,6 @@ func (k *Keeper) GetBandPriceState(ctx sdk.Context, symbol string) *types.BandPr
 
 	k.cdc.MustUnmarshal(bz, &priceState)
 	return &priceState
-}
-
-// SetBandPriceState sets the band price state.
-func (k *Keeper) SetBandPriceState(ctx sdk.Context, symbol string, priceState *types.BandPriceState) {
-	ctx, doneFn := metrics.ReportFuncCallAndTimingSdkCtx(ctx, k.svcTags)
-	defer doneFn()
-
-	bz := k.cdc.MustMarshal(priceState)
-	k.getStore(ctx).Set(types.GetBandPriceStoreKey(symbol), bz)
-
-	k.AppendPriceRecord(ctx, types.OracleType_Band, symbol, &types.PriceRecord{
-		Timestamp: priceState.PriceState.Timestamp,
-		Price:     priceState.PriceState.Price,
-	})
 }
 
 // GetBandReferencePrice fetches prices for a given pair in math.LegacyDec

@@ -51,7 +51,7 @@ type Keeper struct {
 	evmTracer *cosmostracing.Hooks
 
 	// EVM Hooks for tx post-processing
-	hooks types.EvmHooks
+	hook types.EvmHook
 
 	// Legacy subspace
 	ss                paramstypes.Subspace
@@ -155,23 +155,23 @@ func (k Keeper) GetAccountStorage(ctx sdk.Context, address common.Address) types
 // Account
 // ----------------------------------------------------------------------------
 
-// SetHooks sets the hooks for the EVM module
-// It should be called only once during initialization, it panic if called more than once.
-func (k *Keeper) SetHooks(eh types.EvmHooks) *Keeper {
-	if k.hooks != nil {
-		panic("cannot set evm hooks twice")
+// SetHook sets the hooks for the EVM module.
+// If there are hooks already defined, it adds new hook to existing ones.
+func (k *Keeper) SetHook(eh types.EvmHook) *Keeper {
+	if k.hook != nil {
+		k.hook = types.NewEVMHooks(k.hook, eh)
+	} else {
+		k.hook = eh
 	}
-
-	k.hooks = eh
 	return k
 }
 
 // PostTxProcessing delegate the call to the hooks. If no hook has been registered, this function returns with a `nil` error
 func (k *Keeper) PostTxProcessing(ctx sdk.Context, msg *core.Message, receipt *ethtypes.Receipt) error {
-	if k.hooks == nil {
+	if k.hook == nil {
 		return nil
 	}
-	return k.hooks.PostTxProcessing(ctx, msg, receipt)
+	return k.hook.PostTxProcessing(ctx, msg, receipt)
 }
 
 // SetTracer should only be called during initialization
@@ -234,7 +234,9 @@ func (k *Keeper) GetEVMDenomBalance(ctx sdk.Context, addr common.Address) *big.I
 	return k.GetBalance(ctx, cosmosAddr, evmDenom)
 }
 
-// GetBalance load account's balance of specified denom
+// GetBalance returns the spendable balance of the specified denom for an account.
+// It uses SpendableCoin instead of GetBalance to exclude locked funds (e.g., vesting tokens)
+// ensuring accurate gas payment capability assessment.
 func (k *Keeper) GetBalance(ctx sdk.Context, addr sdk.AccAddress, denom string) *big.Int {
-	return k.bankKeeper.GetBalance(ctx, addr, denom).Amount.BigInt()
+	return k.bankKeeper.SpendableCoin(ctx, addr, denom).Amount.BigInt()
 }

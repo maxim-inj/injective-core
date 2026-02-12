@@ -1,6 +1,7 @@
 package pricefeed
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"io/ioutil"
@@ -11,7 +12,7 @@ import (
 	"time"
 
 	sdkmath "cosmossdk.io/math"
-	"github.com/InjectiveLabs/metrics"
+	"github.com/InjectiveLabs/coretracer"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/pkg/errors"
 	"github.com/shopspring/decimal"
@@ -37,7 +38,7 @@ type CoingeckoPriceFeed struct {
 	interval time.Duration
 
 	logger  log.Logger
-	svcTags metrics.Tags
+	svcTags coretracer.Tags
 }
 
 // NewCoingeckoPriceFeed returns price puller for given symbol. The price will be pulled
@@ -58,9 +59,7 @@ func NewCoingeckoPriceFeed(interval time.Duration, endpointConfig *Config) *Coin
 			"svc":      "oracle",
 			"provider": "coingeckgo",
 		}),
-		svcTags: metrics.Tags{
-			"provider": string("coingeckgo"),
-		},
+		svcTags: coretracer.NewTag("oracle_provider", "coingeckgo"),
 	}
 }
 
@@ -74,14 +73,12 @@ func urlJoin(baseURL string, segments ...string) string {
 
 }
 
-func (cp *CoingeckoPriceFeed) QueryUSDPrice(erc20Contract common.Address) (float64, error) {
-	metrics.ReportFuncCall(cp.svcTags)
-	doneFn := metrics.ReportFuncTiming(cp.svcTags)
-	defer doneFn()
+func (cp *CoingeckoPriceFeed) QueryUSDPrice(ctx context.Context, erc20Contract common.Address) (float64, error) {
+	defer coretracer.Trace(&ctx, cp.svcTags)()
 
 	u, err := url.ParseRequestURI(urlJoin(cp.config.BaseURL, "simple", "token_price", "ethereum"))
 	if err != nil {
-		metrics.ReportFuncError(cp.svcTags)
+		coretracer.TraceError(ctx, err)
 		cp.logger.WithError(err).Fatalln("failed to parse URL")
 	}
 
@@ -92,22 +89,23 @@ func (cp *CoingeckoPriceFeed) QueryUSDPrice(erc20Contract common.Address) (float
 	u.RawQuery = q.Encode()
 
 	reqURL := u.String()
-	req, err := http.NewRequest(http.MethodGet, reqURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, http.NoBody)
 	if err != nil {
-		metrics.ReportFuncError(cp.svcTags)
+		coretracer.TraceError(ctx, err)
 		cp.logger.WithError(err).Fatalln("failed to create HTTP request")
+		return zeroPrice, err
 	}
 
 	resp, err := cp.client.Do(req)
 	if err != nil {
-		metrics.ReportFuncError(cp.svcTags)
+		coretracer.TraceError(ctx, err)
 		return zeroPrice, errors.Wrapf(err, "failed to fetch price from %s", reqURL)
 	}
 
 	respBody, err := ioutil.ReadAll(io.LimitReader(resp.Body, maxRespBytes))
 	if err != nil {
 		_ = resp.Body.Close()
-		metrics.ReportFuncError(cp.svcTags)
+		coretracer.TraceError(ctx, err)
 		return zeroPrice, errors.Wrapf(err, "failed to read response body from %s", reqURL)
 	}
 
@@ -115,26 +113,29 @@ func (cp *CoingeckoPriceFeed) QueryUSDPrice(erc20Contract common.Address) (float
 
 	var f interface{}
 	if err := json.Unmarshal(respBody, &f); err != nil {
-		metrics.ReportFuncError(cp.svcTags)
+		coretracer.TraceError(ctx, err)
 		return zeroPrice, err
 	}
 
 	m, ok := f.(map[string]interface{})
 	if !ok {
-		metrics.ReportFuncError(cp.svcTags)
-		return zeroPrice, errors.Errorf("failed to cast response type: map[string]interface{}")
+		err = errors.Errorf("failed to cast response type: map[string]interface{}")
+		coretracer.TraceError(ctx, err)
+		return zeroPrice, err
 	}
 
 	v := m[strings.ToLower(erc20Contract.String())]
 	if v == nil {
-		metrics.ReportFuncError(cp.svcTags)
-		return zeroPrice, errors.Errorf("failed to get contract address")
+		err = errors.Errorf("failed to get contract address")
+		coretracer.TraceError(ctx, err)
+		return zeroPrice, err
 	}
 
 	n, ok := v.(map[string]interface{})
 	if !ok {
-		metrics.ReportFuncError(cp.svcTags)
-		return zeroPrice, errors.Errorf("failed to cast value type: map[string]interface{}")
+		err = errors.Errorf("failed to cast value type: map[string]interface{}")
+		coretracer.TraceError(ctx, err)
+		return zeroPrice, err
 	}
 
 	tokenPriceInUSD := n["usd"].(float64)
@@ -153,14 +154,17 @@ func checkCoingeckoConfig(cfg *Config) *Config {
 	return cfg
 }
 
-func (cp *CoingeckoPriceFeed) CheckFeeThreshold(erc20Contract common.Address, totalFee sdkmath.Int, minFeeInUSD float64) bool {
-	metrics.ReportFuncCall(cp.svcTags)
-	doneFn := metrics.ReportFuncTiming(cp.svcTags)
-	defer doneFn()
+func (cp *CoingeckoPriceFeed) CheckFeeThreshold(
+	ctx context.Context,
+	erc20Contract common.Address,
+	totalFee sdkmath.Int,
+	minFeeInUSD float64,
+) bool {
+	defer coretracer.Trace(&ctx, cp.svcTags)()
 
-	tokenPriceInUSD, err := cp.QueryUSDPrice(erc20Contract)
+	tokenPriceInUSD, err := cp.QueryUSDPrice(ctx, erc20Contract)
 	if err != nil {
-		metrics.ReportFuncError(cp.svcTags)
+		coretracer.TraceError(ctx, err)
 		return false
 	}
 

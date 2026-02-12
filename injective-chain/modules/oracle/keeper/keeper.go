@@ -15,11 +15,13 @@ import (
 
 // Keeper defines a module interface that facilitates the getting and setting of oracle reference data
 type Keeper struct {
-	BandKeeper
-	BandIBCKeeper
 	PriceFeederKeeper
 	CoinbaseKeeper
+	ChainlinkKeeper
 	ProviderKeeper
+	PythKeeper
+	StorkKeeper
+	ChainlinkDataStreamsKeeper
 	types.QueryServer
 
 	storeKey storetypes.StoreKey
@@ -34,6 +36,7 @@ type Keeper struct {
 	scopedKeeper  capabilitykeeper.ScopedKeeper
 
 	ocrKeeper types.OcrKeeper
+	evmKeeper types.EVMKeeper
 
 	svcTags metrics.Tags
 
@@ -51,6 +54,7 @@ func NewKeeper(
 	portKeeper types.PortKeeper,
 	scopedKeeper capabilitykeeper.ScopedKeeper,
 	ocrKeeper types.OcrKeeper,
+	evmKeeper types.EVMKeeper,
 	authority string,
 ) Keeper {
 	return Keeper{
@@ -63,6 +67,7 @@ func NewKeeper(
 		portKeeper:    portKeeper,
 		scopedKeeper:  scopedKeeper,
 		ocrKeeper:     ocrKeeper,
+		evmKeeper:     evmKeeper,
 		authority:     authority,
 		svcTags: metrics.Tags{
 			"svc": "oracle_k",

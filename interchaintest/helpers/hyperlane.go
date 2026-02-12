@@ -10,8 +10,13 @@ import (
 
 	sdkmath "cosmossdk.io/math"
 	"github.com/bcp-innovations/hyperlane-cosmos/util"
+	ismtypes "github.com/bcp-innovations/hyperlane-cosmos/x/core/01_interchain_security/types"
+	pdtypes "github.com/bcp-innovations/hyperlane-cosmos/x/core/02_post_dispatch/types"
+	coretypes "github.com/bcp-innovations/hyperlane-cosmos/x/core/types"
+	warptypes "github.com/bcp-innovations/hyperlane-cosmos/x/warp/types"
 	"github.com/cosmos/cosmos-sdk/crypto/keyring"
 	cosmostypes "github.com/cosmos/cosmos-sdk/types"
+	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/docker/docker/api/types/mount"
 	gethcommon "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -19,11 +24,8 @@ import (
 	"github.com/strangelove-ventures/interchaintest/v8/chain/cosmos"
 	"github.com/strangelove-ventures/interchaintest/v8/ibc"
 	"github.com/stretchr/testify/require"
-
-	ismtypes "github.com/bcp-innovations/hyperlane-cosmos/x/core/01_interchain_security/types"
-	pdtypes "github.com/bcp-innovations/hyperlane-cosmos/x/core/02_post_dispatch/types"
-	coretypes "github.com/bcp-innovations/hyperlane-cosmos/x/core/types"
-	warptypes "github.com/bcp-innovations/hyperlane-cosmos/x/warp/types"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 const (
@@ -71,52 +73,39 @@ func (c HyperLaneContracts) RequiredHook() util.HexAddress {
 func CreateIGP(
 	t *testing.T,
 	ctx context.Context,
-	node *cosmos.ChainNode,
+	chain *cosmos.CosmosChain,
 	creator ibc.Wallet,
 	denom string,
 ) {
 	t.Helper()
 
-	cmd := []string{
-		"hyperlane",
-		"hooks",
-		"igp",
-		"create",
-		denom,
-		"--home", node.HomeDir(),
+	msg := &pdtypes.MsgCreateIgp{
+		Owner: creator.FormattedAddress(),
+		Denom: denom,
 	}
 
-	txHash, err := node.ExecTx(ctx, creator.KeyName(), cmd...)
-	require.NoError(t, err)
-
-	tx, err := QueryTx(ctx, node, txHash)
-	require.NoError(t, err)
-	require.EqualValues(t, tx.ErrorCode, 0)
+	resp := BroadcastTxBlock(t, ctx, chain, creator, []cosmos.FactoryOpt{WithGas(DefaultGas)}, msg)
+	require.EqualValues(t, uint32(0), resp.Code, "create IGP tx failed: %s", resp.RawLog)
 }
 
-func GetIGPs(t *testing.T, ctx context.Context, node *cosmos.ChainNode) *pdtypes.QueryIgpsResponse {
+func GetIGPs(t *testing.T, ctx context.Context, chain *cosmos.CosmosChain) *pdtypes.QueryIgpsResponse {
 	t.Helper()
 
-	cmd := []string{
-		"hyperlane",
-		"hooks",
-		"igps",
-	}
+	conn, err := grpc.NewClient(chain.GetHostGRPCAddress(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err, "failed to create gRPC connection")
+	defer conn.Close()
 
-	bz, _, err := node.ExecQuery(ctx, cmd...)
-	require.NoError(t, err)
-	require.NotNil(t, bz)
+	queryClient := pdtypes.NewQueryClient(conn)
+	resp, err := QueryRPC(ctx, queryClient.Igps, &pdtypes.QueryIgpsRequest{})
+	require.NoError(t, err, "error querying IGPs")
 
-	var resp pdtypes.QueryIgpsResponse
-	require.NoError(t, node.Chain.Config().EncodingConfig.Codec.UnmarshalJSON(bz, &resp))
-
-	return &resp
+	return resp
 }
 
 func SetIGPGasConfig(
 	t *testing.T,
 	ctx context.Context,
-	node *cosmos.ChainNode,
+	chain *cosmos.CosmosChain,
 	creator ibc.Wallet,
 	igpID util.HexAddress,
 	destDomain uint32,
@@ -126,72 +115,58 @@ func SetIGPGasConfig(
 ) {
 	t.Helper()
 
-	cmd := []string{
-		"hyperlane",
-		"hooks",
-		"igp",
-		"set-destination-gas-config",
-		igpID.String(),
-		strconv.FormatUint(uint64(destDomain), 10),
-		exchangeRate.String(),
-		gasPrice.String(),
-		gasOverhead.String(),
-		"--home", node.HomeDir(),
+	msg := &pdtypes.MsgSetDestinationGasConfig{
+		Owner: creator.FormattedAddress(),
+		IgpId: igpID,
+		DestinationGasConfig: &pdtypes.DestinationGasConfig{
+			RemoteDomain: destDomain,
+			GasOracle: &pdtypes.GasOracle{
+				TokenExchangeRate: exchangeRate,
+				GasPrice:          gasPrice,
+			},
+			GasOverhead: gasOverhead,
+		},
 	}
 
-	txHash, err := node.ExecTx(ctx, creator.KeyName(), cmd...)
-	require.NoError(t, err)
-
-	tx, err := QueryTx(ctx, node, txHash)
-	require.NoError(t, err)
-	require.EqualValues(t, tx.ErrorCode, 0)
+	resp := BroadcastTxBlock(t, ctx, chain, creator, []cosmos.FactoryOpt{WithGas(DefaultGas)}, msg)
+	require.EqualValues(t, uint32(0), resp.Code, "set IGP gas config tx failed: %s", resp.RawLog)
 }
 
 func CreateMerkleRootMultisigISM(
 	t *testing.T,
 	ctx context.Context,
-	node *cosmos.ChainNode,
+	chain *cosmos.CosmosChain,
 	creator ibc.Wallet,
 	validators []string,
 	threshold uint32,
 ) {
 	t.Helper()
 
-	cmd := []string{
-		"hyperlane",
-		"ism",
-		"create-merkle-root-multisig",
-		strings.Join(validators, ","),
-		strconv.FormatUint(uint64(threshold), 10),
-		"--home", node.HomeDir(),
+	msg := &ismtypes.MsgCreateMerkleRootMultisigIsm{
+		Creator:    creator.FormattedAddress(),
+		Validators: validators,
+		Threshold:  threshold,
 	}
 
-	txHash, err := node.ExecTx(ctx, creator.KeyName(), cmd...)
-	require.NoError(t, err)
-
-	tx, err := QueryTx(ctx, node, txHash)
-	require.NoError(t, err)
-	require.EqualValues(t, tx.ErrorCode, 0)
+	resp := BroadcastTxBlock(t, ctx, chain, creator, []cosmos.FactoryOpt{WithGas(DefaultGas)}, msg)
+	require.EqualValues(t, uint32(0), resp.Code, "create merkle root multisig ISM tx failed: %s", resp.RawLog)
 }
 
-func QueryMerkleRootMultisigISMs(t *testing.T, ctx context.Context, node *cosmos.ChainNode) []*ismtypes.MerkleRootMultisigISM {
-	cmd := []string{
-		"hyperlane",
-		"ism",
-		"isms",
-	}
+func QueryMerkleRootMultisigISMs(t *testing.T, ctx context.Context, chain *cosmos.CosmosChain) []*ismtypes.MerkleRootMultisigISM {
+	t.Helper()
 
-	bz, _, err := node.ExecQuery(ctx, cmd...)
-	require.NoError(t, err)
-	require.NotNil(t, bz)
+	conn, err := grpc.NewClient(chain.GetHostGRPCAddress(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err, "failed to create gRPC connection")
+	defer conn.Close()
 
-	var resp ismtypes.QueryIsmsResponse
-	require.NoError(t, node.Chain.Config().EncodingConfig.Codec.UnmarshalJSON(bz, &resp))
+	queryClient := ismtypes.NewQueryClient(conn)
+	resp, err := QueryRPC(ctx, queryClient.Isms, &ismtypes.QueryIsmsRequest{})
+	require.NoError(t, err, "error querying ISMs")
 
 	isms := make([]*ismtypes.MerkleRootMultisigISM, 0, len(resp.Isms))
 	for _, ism := range resp.Isms {
 		var ISM ismtypes.HyperlaneInterchainSecurityModule
-		require.NoError(t, node.Chain.Config().EncodingConfig.Codec.UnpackAny(ism, &ISM))
+		require.NoError(t, chain.Config().EncodingConfig.Codec.UnpackAny(ism, &ISM))
 
 		if merkleRootISM, ok := ISM.(*ismtypes.MerkleRootMultisigISM); ok {
 			isms = append(isms, merkleRootISM)
@@ -204,44 +179,31 @@ func QueryMerkleRootMultisigISMs(t *testing.T, ctx context.Context, node *cosmos
 func CreateMerkleTreeHook(
 	t *testing.T,
 	ctx context.Context,
-	node *cosmos.ChainNode,
+	chain *cosmos.CosmosChain,
 	creator ibc.Wallet,
 	mailboxID util.HexAddress,
 ) {
 	t.Helper()
 
-	cmd := []string{
-		"hyperlane",
-		"hooks",
-		"merkle",
-		"create",
-		mailboxID.String(),
-		"--home", node.HomeDir(),
+	msg := &pdtypes.MsgCreateMerkleTreeHook{
+		Owner:     creator.FormattedAddress(),
+		MailboxId: mailboxID,
 	}
 
-	txHash, err := node.ExecTx(ctx, creator.KeyName(), cmd...)
-	require.NoError(t, err)
-
-	tx, err := QueryTx(ctx, node, txHash)
-	require.NoError(t, err)
-	require.EqualValues(t, tx.ErrorCode, 0)
+	resp := BroadcastTxBlock(t, ctx, chain, creator, []cosmos.FactoryOpt{WithGas(DefaultGas)}, msg)
+	require.EqualValues(t, uint32(0), resp.Code, "create merkle tree hook tx failed: %s", resp.RawLog)
 }
 
-func QueryMerkleTreeHooks(t *testing.T, ctx context.Context, node *cosmos.ChainNode) []pdtypes.WrappedMerkleTreeHookResponse {
+func QueryMerkleTreeHooks(t *testing.T, ctx context.Context, chain *cosmos.CosmosChain) []pdtypes.WrappedMerkleTreeHookResponse {
 	t.Helper()
 
-	cmd := []string{
-		"hyperlane",
-		"hooks",
-		"merkle-tree-hooks",
-	}
+	conn, err := grpc.NewClient(chain.GetHostGRPCAddress(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err, "failed to create gRPC connection")
+	defer conn.Close()
 
-	bz, _, err := node.ExecQuery(ctx, cmd...)
-	require.NoError(t, err)
-	require.NotNil(t, bz)
-
-	var resp pdtypes.QueryMerkleTreeHooksResponse
-	require.NoError(t, node.Chain.Config().EncodingConfig.Codec.UnmarshalJSON(bz, &resp))
+	queryClient := pdtypes.NewQueryClient(conn)
+	resp, err := QueryRPC(ctx, queryClient.MerkleTreeHooks, &pdtypes.QueryMerkleTreeHooksRequest{})
+	require.NoError(t, err, "error querying merkle tree hooks")
 
 	hooks := make([]pdtypes.WrappedMerkleTreeHookResponse, 0, len(resp.MerkleTreeHooks))
 	hooks = append(hooks, resp.MerkleTreeHooks...)
@@ -252,27 +214,23 @@ func QueryMerkleTreeHooks(t *testing.T, ctx context.Context, node *cosmos.ChainN
 func QueryISM(
 	t *testing.T,
 	ctx context.Context,
-	node *cosmos.ChainNode,
+	chain *cosmos.CosmosChain,
 ) []util.HexAddress {
 	t.Helper()
 
-	bz, _, err := node.ExecQuery(ctx,
-		"hyperlane",
-		"ism",
-		"isms",
-	)
+	conn, err := grpc.NewClient(chain.GetHostGRPCAddress(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err, "failed to create gRPC connection")
+	defer conn.Close()
 
-	require.NoError(t, err)
-	require.NotNil(t, bz)
-
-	var resp ismtypes.QueryIsmsResponse
-	require.NoError(t, node.Chain.Config().EncodingConfig.Codec.UnmarshalJSON(bz, &resp))
+	queryClient := ismtypes.NewQueryClient(conn)
+	resp, err := QueryRPC(ctx, queryClient.Isms, &ismtypes.QueryIsmsRequest{})
+	require.NoError(t, err, "error querying ISMs")
 
 	isms := make([]util.HexAddress, 0, len(resp.Isms))
 
 	for _, ism := range resp.Isms {
 		var ISM ismtypes.HyperlaneInterchainSecurityModule
-		require.NoError(t, node.Chain.Config().EncodingConfig.Codec.UnpackAny(ism, &ISM))
+		require.NoError(t, chain.Config().EncodingConfig.Codec.UnpackAny(ism, &ISM))
 
 		id, err := ISM.GetId()
 		require.NoError(t, err)
@@ -283,20 +241,16 @@ func QueryISM(
 	return isms
 }
 
-func QueryMailboxes(t *testing.T, ctx context.Context, node *cosmos.ChainNode) []coretypes.Mailbox {
+func QueryMailboxes(t *testing.T, ctx context.Context, chain *cosmos.CosmosChain) []coretypes.Mailbox {
 	t.Helper()
 
-	cmd := []string{
-		"hyperlane",
-		"mailboxes",
-	}
+	conn, err := grpc.NewClient(chain.GetHostGRPCAddress(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err, "failed to create gRPC connection")
+	defer conn.Close()
 
-	bz, _, err := node.ExecQuery(ctx, cmd...)
-	require.NoError(t, err)
-	require.NotNil(t, bz)
-
-	var resp coretypes.QueryMailboxesResponse
-	require.NoError(t, node.Chain.Config().EncodingConfig.Codec.UnmarshalJSON(bz, &resp))
+	queryClient := coretypes.NewQueryClient(conn)
+	resp, err := QueryRPC(ctx, queryClient.Mailboxes, &coretypes.QueryMailboxesRequest{})
+	require.NoError(t, err, "error querying mailboxes")
 
 	return resp.Mailboxes
 }
@@ -304,35 +258,27 @@ func QueryMailboxes(t *testing.T, ctx context.Context, node *cosmos.ChainNode) [
 func CreateMailbox(
 	t *testing.T,
 	ctx context.Context,
-	node *cosmos.ChainNode,
+	chain *cosmos.CosmosChain,
 	creator ibc.Wallet,
 	ism util.HexAddress,
 	domain uint32,
 ) {
 	t.Helper()
 
-	cmd := []string{
-		"hyperlane",
-		"mailbox",
-		"create",
-		ism.String(),
-		strconv.FormatUint(uint64(domain), 10),
-		"--from", creator.KeyName(),
-		"--home", node.HomeDir(),
+	msg := &coretypes.MsgCreateMailbox{
+		Owner:       creator.FormattedAddress(),
+		DefaultIsm:  ism,
+		LocalDomain: domain,
 	}
 
-	txHash, err := node.ExecTx(ctx, creator.KeyName(), cmd...)
-	require.NoError(t, err)
-
-	tx, err := QueryTx(ctx, node, txHash)
-	require.NoError(t, err)
-	require.EqualValues(t, tx.ErrorCode, 0)
+	resp := BroadcastTxBlock(t, ctx, chain, creator, []cosmos.FactoryOpt{WithGas(DefaultGas)}, msg)
+	require.EqualValues(t, uint32(0), resp.Code, "create mailbox tx failed: %s", resp.RawLog)
 }
 
 func SetMailboxHooks(
 	t *testing.T,
 	ctx context.Context,
-	node *cosmos.ChainNode,
+	chain *cosmos.CosmosChain,
 	creator ibc.Wallet,
 	mailboxID util.HexAddress,
 	requiredHook util.HexAddress,
@@ -340,106 +286,77 @@ func SetMailboxHooks(
 ) {
 	t.Helper()
 
-	cmd := []string{
-		"hyperlane",
-		"mailbox",
-		"set",
-		mailboxID.String(),
-		"--home", node.HomeDir(),
+	msg := &coretypes.MsgSetMailbox{
+		Owner:        creator.FormattedAddress(),
+		MailboxId:    mailboxID,
+		RequiredHook: &requiredHook,
+		DefaultHook:  &defaultHook,
 	}
 
-	if !requiredHook.IsZeroAddress() {
-		cmd = append(cmd, "--required-hook", requiredHook.String())
-	}
-
-	if !defaultHook.IsZeroAddress() {
-		cmd = append(cmd, "--default-hook", defaultHook.String())
-	}
-
-	txHash, err := node.ExecTx(ctx, creator.KeyName(), cmd...)
-	require.NoError(t, err)
-
-	tx, err := QueryTx(ctx, node, txHash)
-	require.NoError(t, err)
-	require.EqualValues(t, tx.ErrorCode, 0)
+	resp := BroadcastTxBlock(t, ctx, chain, creator, []cosmos.FactoryOpt{WithGas(DefaultGas)}, msg)
+	require.EqualValues(t, uint32(0), resp.Code, "set mailbox hooks tx failed: %s", resp.RawLog)
 }
 
 func CreateCollateralToken(
 	t *testing.T,
 	ctx context.Context,
-	node *cosmos.ChainNode,
+	chain *cosmos.CosmosChain,
 	creator ibc.Wallet,
 	originMailbox util.HexAddress,
 	originDenom string,
 ) {
 	t.Helper()
 
-	cmd := []string{
-		"warp",
-		"create-collateral-token",
-		originMailbox.String(),
-		originDenom,
-		"--home", node.HomeDir(),
+	msg := &warptypes.MsgCreateCollateralToken{
+		Owner:         creator.FormattedAddress(),
+		OriginMailbox: originMailbox,
+		OriginDenom:   originDenom,
 	}
 
-	txHash, err := node.ExecTx(ctx, creator.KeyName(), cmd...)
-	require.NoError(t, err)
-
-	tx, err := QueryTx(ctx, node, txHash)
-	require.NoError(t, err)
-	require.EqualValues(t, tx.ErrorCode, 0)
+	resp := BroadcastTxBlock(t, ctx, chain, creator, []cosmos.FactoryOpt{WithGas(DefaultGas)}, msg)
+	require.EqualValues(t, uint32(0), resp.Code, "create collateral token tx failed: %s", resp.RawLog)
 }
 
 func CreateSyntheticToken(
 	t *testing.T,
 	ctx context.Context,
-	node *cosmos.ChainNode,
+	chain *cosmos.CosmosChain,
 	creator ibc.Wallet,
 	originMailbox util.HexAddress,
 ) {
 	t.Helper()
 
-	cmd := []string{
-		"warp",
-		"create-synthetic-token",
-		originMailbox.String(),
-		"--home", node.HomeDir(),
+	msg := &warptypes.MsgCreateSyntheticToken{
+		Owner:         creator.FormattedAddress(),
+		OriginMailbox: originMailbox,
 	}
 
-	txHash, err := node.ExecTx(ctx, creator.KeyName(), cmd...)
-	require.NoError(t, err)
-
-	tx, err := QueryTx(ctx, node, txHash)
-	require.NoError(t, err)
-	require.EqualValues(t, tx.ErrorCode, 0)
+	resp := BroadcastTxBlock(t, ctx, chain, creator, []cosmos.FactoryOpt{WithGas(DefaultGas)}, msg)
+	require.EqualValues(t, uint32(0), resp.Code, "create synthetic token tx failed: %s", resp.RawLog)
 }
 
 func QueryTokens(
 	t *testing.T,
 	ctx context.Context,
-	node *cosmos.ChainNode,
+	chain *cosmos.CosmosChain,
 ) *warptypes.QueryTokensResponse {
 	t.Helper()
 
-	cmd := []string{
-		"warp",
-		"tokens",
-	}
+	conn, err := grpc.NewClient(chain.GetHostGRPCAddress(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err, "failed to create gRPC connection")
+	defer conn.Close()
 
-	bz, _, err := node.ExecQuery(ctx, cmd...)
-	require.NoError(t, err)
-	require.NotNil(t, bz)
+	queryClient := warptypes.NewQueryClient(conn)
+	resp, err := QueryRPC(ctx, queryClient.Tokens, &warptypes.QueryTokensRequest{})
+	require.NoError(t, err, "error querying tokens")
 
-	var resp warptypes.QueryTokensResponse
-	require.NoError(t, node.Chain.Config().EncodingConfig.Codec.UnmarshalJSON(bz, &resp))
-
-	return &resp
+	return resp
 }
 
 func EnrollRemoteRouter(
 	t *testing.T,
 	ctx context.Context,
-	node *cosmos.ChainNode,
+	chain *cosmos.CosmosChain,
 	creator ibc.Wallet,
 	tokenID string,
 	receiverDomain uint32,
@@ -448,28 +365,27 @@ func EnrollRemoteRouter(
 ) {
 	t.Helper()
 
-	cmd := []string{
-		"warp",
-		"enroll-remote-router",
-		tokenID,
-		strconv.FormatUint(uint64(receiverDomain), 10),
-		receiverContract,
-		gas.String(),
-		"--home", node.HomeDir(),
+	tokenIDHex, err := util.DecodeHexAddress(tokenID)
+	require.NoError(t, err, "failed to decode tokenID as hex address")
+
+	msg := &warptypes.MsgEnrollRemoteRouter{
+		Owner:   creator.FormattedAddress(),
+		TokenId: tokenIDHex,
+		RemoteRouter: &warptypes.RemoteRouter{
+			ReceiverDomain:   receiverDomain,
+			ReceiverContract: receiverContract,
+			Gas:              gas,
+		},
 	}
 
-	txHash, err := node.ExecTx(ctx, creator.KeyName(), cmd...)
-	require.NoError(t, err)
-
-	tx, err := QueryTx(ctx, node, txHash)
-	require.NoError(t, err)
-	require.EqualValues(t, tx.ErrorCode, 0)
+	resp := BroadcastTxBlock(t, ctx, chain, creator, []cosmos.FactoryOpt{WithGas(DefaultGas)}, msg)
+	require.EqualValues(t, uint32(0), resp.Code, "enroll remote router tx failed: %s", resp.RawLog)
 }
 
 func RemoteTransfer(
 	t *testing.T,
 	ctx context.Context,
-	node *cosmos.ChainNode,
+	chain *cosmos.CosmosChain,
 	sender ibc.Wallet,
 	tokenID string,
 	destDomain uint32,
@@ -481,26 +397,22 @@ func RemoteTransfer(
 ) {
 	t.Helper()
 
-	cmd := []string{
-		"warp",
-		"transfer",
-		tokenID,
-		strconv.FormatUint(uint64(destDomain), 10),
-		recipient.String(),
-		amount.String(),
-		"--home", node.HomeDir(),
-		"--gas-limit", gasLimit.String(),
-		"--max-hyperlane-fee", maxFee.String(),
-		"--custom-hook-id", customHookID.String(),
-		"--gas", strconv.FormatUint(300_000, 10),
+	tokenIDHex, err := util.DecodeHexAddress(tokenID)
+	require.NoError(t, err, "failed to decode tokenID as hex address")
+
+	msg := &warptypes.MsgRemoteTransfer{
+		Sender:            sender.FormattedAddress(),
+		TokenId:           tokenIDHex,
+		DestinationDomain: destDomain,
+		Recipient:         recipient,
+		Amount:            amount,
+		GasLimit:          gasLimit,
+		MaxFee:            maxFee,
+		CustomHookId:      &customHookID,
 	}
 
-	txHash, err := node.ExecTx(ctx, sender.KeyName(), cmd...)
-	require.NoError(t, err)
-
-	tx, err := QueryTx(ctx, node, txHash)
-	require.NoError(t, err)
-	require.EqualValues(t, tx.ErrorCode, 0)
+	resp := BroadcastTxBlock(t, ctx, chain, sender, []cosmos.FactoryOpt{WithGas(DefaultGas)}, msg)
+	require.EqualValues(t, uint32(0), resp.Code, "remote transfer tx failed: %s", resp.RawLog)
 }
 
 func SetupHyperLaneCoreComponents(
@@ -515,8 +427,8 @@ func SetupHyperLaneCoreComponents(
 ) HyperLaneContracts {
 	t.Helper()
 
-	CreateIGP(t, ctx, chain.GetNode(), creator, denom)
-	igps := GetIGPs(t, ctx, chain.GetNode())
+	CreateIGP(t, ctx, chain, creator, denom)
+	igps := GetIGPs(t, ctx, chain)
 	igp := igps.Igps[0]
 
 	// set igp gas config
@@ -530,7 +442,7 @@ func SetupHyperLaneCoreComponents(
 
 	SetIGPGasConfig(t,
 		ctx,
-		chain.GetNode(),
+		chain,
 		creator,
 		igp.Id,
 		destinationDomain,
@@ -540,21 +452,21 @@ func SetupHyperLaneCoreComponents(
 	)
 
 	validatorAddrETH := ismValidator.Hex()
-	CreateMerkleRootMultisigISM(t, ctx, chain.GetNode(), creator, []string{validatorAddrETH}, 1)
+	CreateMerkleRootMultisigISM(t, ctx, chain, creator, []string{validatorAddrETH}, 1)
 
-	isms := QueryMerkleRootMultisigISMs(t, ctx, chain.GetNode())
+	isms := QueryMerkleRootMultisigISMs(t, ctx, chain)
 	require.Len(t, isms, 1)
 	merkleRootISM := isms[0]
 
 	// create mailbox
-	CreateMailbox(t, ctx, chain.GetNode(), creator, merkleRootISM.Id, sourceDomain)
-	mailboxes := QueryMailboxes(t, ctx, chain.GetNode())
+	CreateMailbox(t, ctx, chain, creator, merkleRootISM.Id, sourceDomain)
+	mailboxes := QueryMailboxes(t, ctx, chain)
 	require.Len(t, mailboxes, 1)
 	mailbox := mailboxes[0]
 
 	// create merkle tree hook (required hook)
-	CreateMerkleTreeHook(t, ctx, chain.GetNode(), creator, mailbox.Id)
-	hooks := QueryMerkleTreeHooks(t, ctx, chain.GetNode())
+	CreateMerkleTreeHook(t, ctx, chain, creator, mailbox.Id)
+	hooks := QueryMerkleTreeHooks(t, ctx, chain)
 	require.Len(t, hooks, 1)
 	merkleTreeHook := hooks[0]
 
@@ -562,7 +474,7 @@ func SetupHyperLaneCoreComponents(
 	defaultHook := igp.Id
 	requiredHook, err := util.DecodeHexAddress(merkleTreeHook.Id)
 	require.NoError(t, err)
-	SetMailboxHooks(t, ctx, chain.GetNode(), creator, mailbox.Id, requiredHook, defaultHook)
+	SetMailboxHooks(t, ctx, chain, creator, mailbox.Id, requiredHook, defaultHook)
 
 	t.Log("setup hyperlane core components", "chain_id:", chain.Config().ChainID)
 
@@ -809,22 +721,49 @@ func SetupHyperLaneValidatorAccount(
 	wallet, err := chain.BuildWallet(ctx, HyperLaneValidatorKeyName, mnemonic)
 	require.NoError(t, err)
 
-	funds := ibc.WalletAmount{
-		Address: wallet.FormattedAddress(),
-		Denom:   chain.Config().Denom,
-		Amount:  sdkmath.NewIntWithDecimal(100_000, 18),
-	}
+	// Fund wallet from faucet using gRPC broadcast
+	fundsAmount := sdkmath.NewIntWithDecimal(100_000, 18)
+	txHash, err := BroadcastMsgWithKeyringAsync(
+		ctx,
+		chain,
+		chain.GetFullNode(),
+		interchaintest.FaucetAccountKeyName,
+		DefaultGas,
+		func(faucetAddr cosmostypes.AccAddress) ([]cosmostypes.Msg, error) {
+			return []cosmostypes.Msg{
+				&banktypes.MsgSend{
+					FromAddress: faucetAddr.String(),
+					ToAddress:   wallet.FormattedAddress(),
+					Amount:      cosmostypes.NewCoins(cosmostypes.NewCoin(chain.Config().Denom, fundsAmount)),
+				},
+			}, nil
+		},
+	)
+	require.NoError(t, err, "failed to fund hyperlane validator wallet")
 
-	require.NoError(t, chain.SendFunds(ctx, interchaintest.FaucetAccountKeyName, funds))
+	// Wait for funding tx to be included in a block so the account is created on-chain
+	_, err = QueryTxRPC(ctx, chain.GetFullNode(), txHash)
+	require.NoError(t, err, "failed to wait for hyperlane validator funding tx")
 
-	// random initial send to that pub key will exist in auth module (required by hyperlane agents)
-	send := ibc.WalletAmount{
-		Address: "inj1yhavuv87spmk6y5x8ymr3s23hr06kl0vnlptqd",
-		Denom:   chain.Config().Denom,
-		Amount:  sdkmath.NewIntWithDecimal(1, 18),
-	}
-
-	require.NoError(t, chain.SendFunds(ctx, HyperLaneValidatorKeyName, send))
+	// random initial send so that pub key will exist in auth module (required by hyperlane agents)
+	sendAmount := sdkmath.NewIntWithDecimal(1, 18)
+	_, err = BroadcastMsgWithKeyringAsync(
+		ctx,
+		chain,
+		chain.GetFullNode(),
+		HyperLaneValidatorKeyName,
+		DefaultGas,
+		func(senderAddr cosmostypes.AccAddress) ([]cosmostypes.Msg, error) {
+			return []cosmostypes.Msg{
+				&banktypes.MsgSend{
+					FromAddress: senderAddr.String(),
+					ToAddress:   "inj1yhavuv87spmk6y5x8ymr3s23hr06kl0vnlptqd",
+					Amount:      cosmostypes.NewCoins(cosmostypes.NewCoin(chain.Config().Denom, sendAmount)),
+				},
+			}, nil
+		},
+	)
+	require.NoError(t, err, "failed to send initial tx from hyperlane validator")
 
 	return wallet
 }
@@ -840,22 +779,49 @@ func SetupHyperlaneAccount(
 	wallet, err := chain.BuildWallet(ctx, name, mnemonic)
 	require.NoError(t, err)
 
-	funds := ibc.WalletAmount{
-		Address: wallet.FormattedAddress(),
-		Denom:   chain.Config().Denom,
-		Amount:  sdkmath.NewIntWithDecimal(100_000, 18),
-	}
+	// Fund wallet from faucet using gRPC broadcast
+	fundsAmount := sdkmath.NewIntWithDecimal(100_000, 18)
+	txHash, err := BroadcastMsgWithKeyringAsync(
+		ctx,
+		chain,
+		chain.GetFullNode(),
+		interchaintest.FaucetAccountKeyName,
+		DefaultGas,
+		func(faucetAddr cosmostypes.AccAddress) ([]cosmostypes.Msg, error) {
+			return []cosmostypes.Msg{
+				&banktypes.MsgSend{
+					FromAddress: faucetAddr.String(),
+					ToAddress:   wallet.FormattedAddress(),
+					Amount:      cosmostypes.NewCoins(cosmostypes.NewCoin(chain.Config().Denom, fundsAmount)),
+				},
+			}, nil
+		},
+	)
+	require.NoError(t, err, "failed to fund hyperlane account wallet")
 
-	require.NoError(t, chain.SendFunds(ctx, interchaintest.FaucetAccountKeyName, funds))
+	// Wait for funding tx to be included in a block so the account is created on-chain
+	_, err = QueryTxRPC(ctx, chain.GetFullNode(), txHash)
+	require.NoError(t, err, "failed to wait for hyperlane account funding tx")
 
-	// random initial send to that pub key will exist in auth module (required by hyperlane agents)
-	send := ibc.WalletAmount{
-		Address: "inj1yhavuv87spmk6y5x8ymr3s23hr06kl0vnlptqd",
-		Denom:   chain.Config().Denom,
-		Amount:  sdkmath.NewIntWithDecimal(1, 18),
-	}
-
-	require.NoError(t, chain.SendFunds(ctx, name, send))
+	// random initial send so that pub key will exist in auth module (required by hyperlane agents)
+	sendAmount := sdkmath.NewIntWithDecimal(1, 18)
+	_, err = BroadcastMsgWithKeyringAsync(
+		ctx,
+		chain,
+		chain.GetFullNode(),
+		name,
+		DefaultGas,
+		func(senderAddr cosmostypes.AccAddress) ([]cosmostypes.Msg, error) {
+			return []cosmostypes.Msg{
+				&banktypes.MsgSend{
+					FromAddress: senderAddr.String(),
+					ToAddress:   "inj1yhavuv87spmk6y5x8ymr3s23hr06kl0vnlptqd",
+					Amount:      cosmostypes.NewCoins(cosmostypes.NewCoin(chain.Config().Denom, sendAmount)),
+				},
+			}, nil
+		},
+	)
+	require.NoError(t, err, "failed to send initial tx from hyperlane account")
 
 	return wallet
 }
@@ -921,11 +887,11 @@ func DeployWarpRoute(
 	chain2DomainID := contracts1.DestinationDomain
 	sourceMailboxID := contracts1.Mailbox.Id
 
-	CreateCollateralToken(t, ctx, chain1.GetNode(), deployer1, sourceMailboxID, chain1.Config().Denom)
-	CreateSyntheticToken(t, ctx, chain2.GetNode(), deployer2, sourceMailboxID)
+	CreateCollateralToken(t, ctx, chain1, deployer1, sourceMailboxID, chain1.Config().Denom)
+	CreateSyntheticToken(t, ctx, chain2, deployer2, sourceMailboxID)
 
-	tokensInjective1 := QueryTokens(t, ctx, chain1.GetNode())
-	tokensInjective2 := QueryTokens(t, ctx, chain2.GetNode())
+	tokensInjective1 := QueryTokens(t, ctx, chain1)
+	tokensInjective2 := QueryTokens(t, ctx, chain2)
 	require.Len(t, tokensInjective1.Tokens, 1)
 	require.Len(t, tokensInjective2.Tokens, 1)
 
@@ -939,7 +905,7 @@ func DeployWarpRoute(
 
 	EnrollRemoteRouter(t,
 		ctx,
-		chain1.GetNode(),
+		chain1,
 		deployer1,
 		collateralTokenInjective1.Id,
 		chain2DomainID,
@@ -949,7 +915,7 @@ func DeployWarpRoute(
 
 	EnrollRemoteRouter(t,
 		ctx,
-		chain2.GetNode(),
+		chain2,
 		deployer2,
 		syntheticTokenInjective2.Id,
 		chain1DomainID,

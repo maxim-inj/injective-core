@@ -26,6 +26,7 @@ import (
 	"github.com/cometbft/cometbft/proxy"
 	rpcclient "github.com/cometbft/cometbft/rpc/client"
 	"github.com/cometbft/cometbft/rpc/client/local"
+	rpcserver "github.com/cometbft/cometbft/rpc/jsonrpc/server"
 	dbm "github.com/cosmos/cosmos-db"
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/flags"
@@ -196,6 +197,11 @@ func start(svrCtx *server.Context, clientCtx client.Context, appCreator types.Ap
 		return err
 	}
 
+	appCfg, err := config.GetConfig(svrCtx.Viper)
+	if err != nil {
+		return fmt.Errorf("failed to parse app config: %w", err)
+	}
+
 	app, appCleanupFn, err := startApp(svrCtx, appCreator, opts)
 	if err != nil {
 		return err
@@ -212,7 +218,7 @@ func start(svrCtx *server.Context, clientCtx client.Context, appCreator types.Ap
 	if !withCmt {
 		svrCtx.Logger.Error("Running without CometBFT is not supported.")
 	}
-	return startInProcess(svrCtx, svrCfg, clientCtx, app, telemetryMetrics, opts)
+	return startInProcess(svrCtx, svrCfg, clientCtx, app, appCfg, telemetryMetrics, opts)
 }
 
 // addStartNodeFlags should be added to any CLI commands that start the network.
@@ -553,6 +559,89 @@ func startAPIServer(
 	})
 }
 
+func startStreamingServers(
+	injApp *injectivechain.InjectiveApp,
+	svrCtx *server.Context,
+	wsCfg config.WebsocketConfig,
+) error {
+	chainStreamAddr := cast.ToString(svrCtx.Viper.Get(chainstreamserver.FlagStreamServer))
+	if chainStreamAddr == "" {
+		svrCtx.Logger.Info("chainstream server is disabled; not starting chainstream server")
+		return nil
+	}
+
+	streamBuffCap := cast.ToUint(svrCtx.Viper.Get(chainstreamserver.FlagStreamServerBufferCapacity))
+	if streamBuffCap == 0 {
+		return errors.New("invalid stream buffer capacity: must be greater than 0")
+	}
+
+	publisherBuffCap := cast.ToUint(svrCtx.Viper.Get(chainstreamserver.FlagStreamPublisherBufferCapacity))
+	if publisherBuffCap == 0 {
+		return errors.New("invalid publisher buffer capacity: must be greater than 0")
+	}
+
+	injApp.ChainStreamServer.WithBufferCapacity(streamBuffCap)
+	injApp.EventPublisher.WithBufferCapacity(publisherBuffCap)
+	injApp.EnableStreamer = true
+
+	if err := injApp.EventPublisher.Run(context.Background()); err != nil {
+		svrCtx.Logger.Error("failed to start event publisher", "error", err)
+		return nil
+	}
+
+	if err := injApp.ChainStreamServer.Serve(chainStreamAddr); err != nil {
+		svrCtx.Logger.Error("failed to start chainstream server", "error", err)
+		return nil
+	}
+
+	return startWebsocketServer(injApp, svrCtx, wsCfg)
+}
+
+func startWebsocketServer(
+	injApp *injectivechain.InjectiveApp,
+	svrCtx *server.Context,
+	wsCfg config.WebsocketConfig,
+) error {
+	if wsCfg.Address == "" {
+		svrCtx.Logger.Info("websocket server is disabled; not starting websocket server")
+		return nil
+	}
+
+	if wsCfg.MaxOpenConnections < 0 {
+		return fmt.Errorf("invalid websocket max open connections %d: please set a non-negative value", wsCfg.MaxOpenConnections)
+	}
+	if wsCfg.ReadTimeout < 0 {
+		return fmt.Errorf("invalid websocket read timeout %s: please set a non-negative duration", wsCfg.ReadTimeout)
+	}
+	if wsCfg.WriteTimeout < 0 {
+		return fmt.Errorf("invalid websocket write timeout %s: please set a non-negative duration", wsCfg.WriteTimeout)
+	}
+	if wsCfg.MaxBodyBytes < 0 {
+		return fmt.Errorf("invalid websocket max body bytes %d: please set a non-negative value", wsCfg.MaxBodyBytes)
+	}
+	if wsCfg.MaxHeaderBytes < 0 {
+		return fmt.Errorf("invalid websocket max header bytes %d: please set a non-negative value", wsCfg.MaxHeaderBytes)
+	}
+	if wsCfg.MaxRequestBatchSize < 0 {
+		return fmt.Errorf("invalid websocket max request batch size %d: please set a non-negative value", wsCfg.MaxRequestBatchSize)
+	}
+
+	injApp.WebsocketServer.WithRPCConfig(func(cfg *rpcserver.Config) {
+		cfg.MaxOpenConnections = wsCfg.MaxOpenConnections
+		cfg.ReadTimeout = wsCfg.ReadTimeout
+		cfg.WriteTimeout = wsCfg.WriteTimeout
+		cfg.MaxBodyBytes = wsCfg.MaxBodyBytes
+		cfg.MaxHeaderBytes = wsCfg.MaxHeaderBytes
+		cfg.MaxRequestBatchSize = wsCfg.MaxRequestBatchSize
+	})
+
+	if err := injApp.WebsocketServer.Serve(wsCfg.Address); err != nil {
+		svrCtx.Logger.Error("failed to start websocket server", "error", err)
+	}
+
+	return nil
+}
+
 func startStatsdMetrics(ctx *server.Context, app *injectivechain.InjectiveApp) error {
 	envName := "chain-" + ctx.Viper.GetString(flags.FlagChainID)
 	if env := os.Getenv("APP_ENV"); env != "" {
@@ -612,8 +701,14 @@ func startStatsdMetrics(ctx *server.Context, app *injectivechain.InjectiveApp) e
 	return nil
 }
 
-func startInProcess(svrCtx *server.Context, svrCfg serverconfig.Config, clientCtx client.Context, app types.Application,
-	tmetrics *telemetry.Metrics, opts server.StartCmdOptions,
+func startInProcess(
+	svrCtx *server.Context,
+	svrCfg serverconfig.Config,
+	clientCtx client.Context,
+	app types.Application,
+	appCfg config.Config,
+	tmetrics *telemetry.Metrics,
+	opts server.StartCmdOptions,
 ) error {
 	closer.Init(closer.Config{
 		ExitCodeOK:  closer.ExitCodeOK,
@@ -636,18 +731,7 @@ func startInProcess(svrCtx *server.Context, svrCfg serverconfig.Config, clientCt
 	}
 	defer cleanupFn()
 
-	// Add the tx service to the gRPC router. We only need to register this
-	// service if API or gRPC is enabled, and avoid doing so in the general
-	// case, because it spawns a new local CometBFT RPC client.
-	if svrCfg.API.Enable || svrCfg.GRPC.Enable {
-		// Re-assign for making the client available below do not use := to avoid
-		// shadowing the clientCtx variable.
-		clientCtx = clientCtx.WithClient(local.New(tmNode))
-
-		app.RegisterTxService(clientCtx)
-		app.RegisterTendermintService(clientCtx)
-		app.RegisterNodeService(clientCtx, svrCfg)
-	}
+	clientCtx = registerTxServices(tmNode, clientCtx, svrCfg, app)
 
 	grpcSrv, clientCtx, err := startGrpcServer(ctx, g, svrCfg.GRPC, clientCtx, svrCtx, app)
 	if err != nil {
@@ -663,39 +747,17 @@ func startInProcess(svrCtx *server.Context, svrCfg serverconfig.Config, clientCt
 	}
 
 	if injApp, ok := app.(*injectivechain.InjectiveApp); ok {
-		// start chainstream server
-		chainStreamServeAddr := cast.ToString(svrCtx.Viper.Get(chainstreamserver.FlagStreamServer))
-		buffCap := cast.ToUint(svrCtx.Viper.Get(chainstreamserver.FlagStreamServerBufferCapacity))
-		if buffCap == 0 {
-			return fmt.Errorf("invalid buffer capacity %d. Please set a positive value greater than 0", buffCap)
-		}
-		injApp.ChainStreamServer.WithBufferCapacity(buffCap)
-		pubBuffCap := cast.ToUint(svrCtx.Viper.Get(chainstreamserver.FlagStreamPublisherBufferCapacity))
-		if pubBuffCap == 0 {
-			return fmt.Errorf("invalid publisher buffer capacity %d. Please set a positive value greater than 0", pubBuffCap)
-		}
-		injApp.EventPublisher.WithBufferCapacity(pubBuffCap)
-		if chainStreamServeAddr != "" {
-			// events are forwarded to StreamEvents channel in cosmos-sdk
-			injApp.EnableStreamer = true
-			if err = injApp.EventPublisher.Run(context.Background()); err != nil {
-				svrCtx.Logger.Error("failed to start event publisher", "error", err)
-			}
-			if err = injApp.ChainStreamServer.Serve(chainStreamServeAddr); err != nil {
-				svrCtx.Logger.Error("failed to start chainstream server", "error", err)
-			}
+		if err := startStreamingServers(injApp, svrCtx, appCfg.InjectiveWebsocket); err != nil {
+			return err
 		}
 	}
 
-	srvconfig, err := config.GetConfig(svrCtx.Viper)
-	if err != nil {
-		svrCtx.Logger.Error("failed to start JSON-RPC server, config error", "error", err)
-	} else if srvconfig.JSONRPC.Enable {
+	if appCfg.JSONRPC.Enable {
 		if _, _, _, err := startJSONRPCServer(
 			svrCtx,
 			clientCtx,
-			srvconfig.JSONRPC,
-			srvconfig.API.EnableUnsafeCORS,
+			appCfg.JSONRPC,
+			appCfg.API.EnableUnsafeCORS,
 			g,
 			app,
 		); err != nil {
@@ -703,25 +765,56 @@ func startInProcess(svrCtx *server.Context, svrCfg serverconfig.Config, clientCt
 		}
 	}
 
-	closer.Bind(func() {
+	closer.Bind(makeCleanupHandler(tmNode, app, svrCtx))
+	closer.Hold()
+
+	return g.Wait()
+}
+
+func makeCleanupHandler(tmNode *node.Node, app types.Application, svrCtx *server.Context) func() {
+	return func() {
 		if tmNode.IsRunning() {
 			_ = tmNode.Stop()
 		}
 
 		if injApp, ok := app.(*injectivechain.InjectiveApp); ok {
-			err := injApp.EventPublisher.Stop()
-			if err != nil {
-				svrCtx.Logger.Error("failed to stop event publisher", "error", err)
+			// Stop websocket server first (if running) to stop accepting new subscriptions
+			if injApp.WebsocketServer != nil {
+				injApp.WebsocketServer.Stop()
 			}
-			injApp.ChainStreamServer.Stop()
+
+			if injApp.ChainStreamServer != nil {
+				injApp.ChainStreamServer.Stop()
+			}
+
+			if injApp.EventPublisher != nil {
+				if err := injApp.EventPublisher.Stop(); err != nil {
+					svrCtx.Logger.Error("failed to stop event publisher", "error", err)
+				}
+			}
 		}
 
 		svrCtx.Logger.Info("Bye!")
-	})
+	}
+}
 
-	closer.Hold()
+// registerTxServices adds the tx service to the gRPC router when API or gRPC is enabled.
+func registerTxServices(
+	tmNode *node.Node,
+	clientCtx client.Context,
+	svrCfg serverconfig.Config,
+	app types.Application,
+) client.Context {
+	if !svrCfg.API.Enable && !svrCfg.GRPC.Enable {
+		return clientCtx
+	}
 
-	return g.Wait()
+	clientCtx = clientCtx.WithClient(local.New(tmNode))
+	app.RegisterTxService(clientCtx)
+	app.RegisterTendermintService(clientCtx)
+	app.RegisterNodeService(clientCtx, svrCfg)
+
+	return clientCtx
 }
 func startJSONRPCServer(
 	svrCtx *server.Context,

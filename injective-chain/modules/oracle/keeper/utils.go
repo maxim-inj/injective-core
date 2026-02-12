@@ -17,7 +17,7 @@ func (k *Keeper) GetPricePairStateForUSD(ctx sdk.Context, basePriceState types.P
 		BaseCumulativePrice:  basePriceState.CumulativePrice,
 		QuoteCumulativePrice: math.LegacyDec{},
 		BaseTimestamp:        basePriceState.Timestamp,
-		QuoteTimestamp:       0,
+		QuoteTimestamp:       basePriceState.Timestamp,
 	}
 	return &pricePairState
 }
@@ -75,6 +75,12 @@ func (k *Keeper) GetPriceState(ctx sdk.Context, key string, oracletype types.Ora
 		return nil
 	case types.OracleType_Stork:
 		priceState := k.GetStorkPriceState(ctx, key)
+		if priceState == nil {
+			return nil
+		}
+		return &priceState.PriceState
+	case types.OracleType_ChainlinkDataStreams:
+		priceState := k.GetChainlinkDataStreamsPriceState(ctx, key)
 		if priceState == nil {
 			return nil
 		}
