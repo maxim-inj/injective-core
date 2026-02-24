@@ -1,6 +1,6 @@
 """Injective Core - Injective blockchain node binary wrapper."""
 
-__version__ = "1.17.2.post3"
+__version__ = "1.18.0"
 __all__ = ["get_binary_path", "run_binary"]
 
 import os

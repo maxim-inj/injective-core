@@ -18,8 +18,8 @@
 # =============================================================================
 
 # Configuration
-VERSION ?= 1.17.2-build3
-PYPI_VERSION ?= 1.17.2.post3
+VERSION ?= 1.18.0
+PYPI_VERSION ?= 1.18.0
 NPM_VERSION ?= $(shell printf "%s" "$(VERSION)" | sed -E 's/^([0-9]+\\.[0-9]+\\.[0-9]+)\\.post([0-9]+)$$/\\1-build\\2/; s/^([0-9]+\\.[0-9]+\\.[0-9]+)-post\\.([0-9]+)$$/\\1-build\\2/')
 NPM_TAG ?= build
 OUTPUT_DIR ?= $(CURDIR)/output
