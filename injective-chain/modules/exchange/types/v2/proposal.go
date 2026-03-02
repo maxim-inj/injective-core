@@ -403,8 +403,14 @@ func (p *SpotMarketLaunchProposal) ValidateBasic() error {
 	if p.BaseDenom == "" {
 		return errors.Wrap(types.ErrInvalidBaseDenom, "base denom should not be empty")
 	}
+	if len(p.BaseDenom) > types.MaxMarketLaunchDenomLength {
+		return errors.Wrapf(types.ErrInvalidBaseDenom, "base denom should not exceed %d characters", types.MaxMarketLaunchDenomLength)
+	}
 	if p.QuoteDenom == "" {
 		return errors.Wrap(types.ErrInvalidQuoteDenom, "quote denom should not be empty")
+	}
+	if len(p.QuoteDenom) > types.MaxMarketLaunchDenomLength {
+		return errors.Wrapf(types.ErrInvalidQuoteDenom, "quote denom should not exceed %d characters", types.MaxMarketLaunchDenomLength)
 	}
 	if p.BaseDenom == p.QuoteDenom {
 		return types.ErrSameDenoms
@@ -758,8 +764,14 @@ func (p *OracleParams) ValidateBasic() error {
 	if p.OracleBase == "" {
 		return errors.Wrap(types.ErrInvalidOracle, "oracle base should not be empty")
 	}
+	if len(p.OracleBase) > types.MaxOracleSymbolLength {
+		return errors.Wrapf(types.ErrInvalidOracle, "oracle base should not exceed %d characters", types.MaxOracleSymbolLength)
+	}
 	if p.OracleQuote == "" {
 		return errors.Wrap(types.ErrInvalidOracle, "oracle quote should not be empty")
+	}
+	if len(p.OracleQuote) > types.MaxOracleSymbolLength {
+		return errors.Wrapf(types.ErrInvalidOracle, "oracle quote should not exceed %d characters", types.MaxOracleSymbolLength)
 	}
 	if p.OracleBase == p.OracleQuote {
 		return types.ErrSameOracles
@@ -799,8 +811,14 @@ func (p *ProviderOracleParams) ValidateBasic() error {
 	if p.Symbol == "" {
 		return errors.Wrap(types.ErrInvalidOracle, "oracle symbol should not be empty")
 	}
+	if len(p.Symbol) > types.MaxOracleSymbolLength {
+		return errors.Wrapf(types.ErrInvalidOracle, "oracle symbol should not exceed %d characters", types.MaxOracleSymbolLength)
+	}
 	if p.Provider == "" {
 		return errors.Wrap(types.ErrInvalidOracle, "oracle provider should not be empty")
+	}
+	if len(p.Provider) > types.MaxOracleProviderLength {
+		return errors.Wrapf(types.ErrInvalidOracle, "oracle provider should not exceed %d characters", types.MaxOracleProviderLength)
 	}
 
 	if p.OracleType != oracletypes.OracleType_Provider {
@@ -871,6 +889,9 @@ func (p *PerpetualMarketLaunchProposal) ValidateBasic() error {
 	}
 	if p.QuoteDenom == "" {
 		return errors.Wrap(types.ErrInvalidQuoteDenom, "quote denom should not be empty")
+	}
+	if len(p.QuoteDenom) > types.MaxMarketLaunchDenomLength {
+		return errors.Wrapf(types.ErrInvalidQuoteDenom, "quote denom should not exceed %d characters", types.MaxMarketLaunchDenomLength)
 	}
 
 	oracleParams := NewOracleParams(p.OracleBase, p.OracleQuote, p.OracleScaleFactor, p.OracleType)
@@ -981,6 +1002,9 @@ func (p *ExpiryFuturesMarketLaunchProposal) ValidateBasic() error {
 	}
 	if p.QuoteDenom == "" {
 		return errors.Wrap(types.ErrInvalidQuoteDenom, "quote denom should not be empty")
+	}
+	if len(p.QuoteDenom) > types.MaxMarketLaunchDenomLength {
+		return errors.Wrapf(types.ErrInvalidQuoteDenom, "quote denom should not exceed %d characters", types.MaxMarketLaunchDenomLength)
 	}
 
 	oracleParams := NewOracleParams(p.OracleBase, p.OracleQuote, p.OracleScaleFactor, p.OracleType)
@@ -1617,11 +1641,14 @@ func (p *BinaryOptionsMarketLaunchProposal) ValidateBasic() error {
 	if p.Ticker == "" || len(p.Ticker) > types.MaxTickerLength {
 		return errors.Wrapf(types.ErrInvalidTicker, "ticker should not be empty or exceed %d characters", types.MaxTickerLength)
 	}
-	if p.OracleSymbol == "" {
-		return errors.Wrap(types.ErrInvalidOracle, "oracle symbol should not be empty")
+	if p.OracleSymbol == "" || len(p.OracleSymbol) > types.MaxOracleSymbolLength {
+		return errors.Wrapf(types.ErrInvalidOracle, "oracle symbol should not be empty or exceed %d characters", types.MaxOracleSymbolLength)
 	}
 	if p.OracleProvider == "" {
 		return errors.Wrap(types.ErrInvalidOracle, "oracle provider should not be empty")
+	}
+	if len(p.OracleProvider) > types.MaxOracleProviderLength {
+		return errors.Wrapf(types.ErrInvalidOracle, "oracle provider should not exceed %d characters", types.MaxOracleProviderLength)
 	}
 	if p.OracleType != oracletypes.OracleType_Provider {
 		return errors.Wrap(types.ErrInvalidOracleType, p.OracleType.String())
@@ -1642,6 +1669,9 @@ func (p *BinaryOptionsMarketLaunchProposal) ValidateBasic() error {
 	}
 	if p.QuoteDenom == "" {
 		return errors.Wrap(types.ErrInvalidQuoteDenom, "quote denom should not be empty")
+	}
+	if len(p.QuoteDenom) > types.MaxMarketLaunchDenomLength {
+		return errors.Wrapf(types.ErrInvalidQuoteDenom, "quote denom should not exceed %d characters", types.MaxMarketLaunchDenomLength)
 	}
 	if err := types.ValidateMakerFee(p.MakerFeeRate); err != nil {
 		return err

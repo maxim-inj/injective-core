@@ -27,23 +27,15 @@ func DefaultParams() Params {
 
 // validate params.
 func (p Params) Validate() error {
-	if err := ValidateEVMAddresses(p.EnforcedRestrictionsContracts); err != nil {
-		return fmt.Errorf("invalid contracts with enforced restrictions: %w", err)
-	}
-	return nil
-}
-
-func ValidateEVMAddresses(addresses []string) error {
-	for _, addr := range addresses {
-		if !ethcommon.IsHexAddress(addr) {
-			return fmt.Errorf("is not valid EVM address: %s", addr)
+	for _, contract := range p.GetEnforcedRestrictionsEvmContracts() {
+		if !ethcommon.IsHexAddress(contract.ContractAddress) {
+			return fmt.Errorf("is not valid EVM address: %s", contract.ContractAddress)
 		}
 	}
-
 	return nil
 }
 
 // Implements params.ParamSet.
-func (p *Params) ParamSetPairs() paramtypes.ParamSetPairs {
+func (*Params) ParamSetPairs() paramtypes.ParamSetPairs {
 	return paramtypes.ParamSetPairs{}
 }

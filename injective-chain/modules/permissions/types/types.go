@@ -4,6 +4,7 @@ import (
 	"sort"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/ethereum/go-ethereum/common"
 )
 
 const (
@@ -39,6 +40,28 @@ const (
 var Actions = []Action{
 	Action_MINT, Action_RECEIVE, Action_BURN, Action_SEND, Action_SUPER_BURN,
 	Action_MODIFY_POLICY_MANAGERS, Action_MODIFY_CONTRACT_HOOK, Action_MODIFY_ROLE_PERMISSIONS, Action_MODIFY_ROLE_MANAGERS,
+}
+
+// EnforcedContract is a decoded representation of EnforcedRestrictionsEVMContract from Params
+type EnforcedContract struct {
+	ContractAddress    common.Address
+	PauseEventId       common.Hash
+	UnpauseEventId     common.Hash
+	BlacklistEventId   common.Hash
+	UnblacklistEventId common.Hash
+}
+
+type ContractPauseListener interface {
+	OnEnforcedRestrictionsEVMContractPause(ctx sdk.Context, contract common.Address) error
+}
+type ContractUnpauseListener interface {
+	OnEnforcedRestrictionsEVMContractUnpause(ctx sdk.Context, contract common.Address) error
+}
+type ContractBlacklistListener interface {
+	OnEnforcedRestrictionsEVMContractBlacklist(ctx sdk.Context, contract, user common.Address) error
+}
+type ContractUnblacklistListener interface {
+	OnEnforcedRestrictionsEVMContractUnblacklist(ctx sdk.Context, contract, user common.Address) error
 }
 
 // IsValidPermission checks if the given permissions is a valid combination of actions.

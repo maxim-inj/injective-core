@@ -29,6 +29,7 @@ const (
 	StoreKey = ModuleName
 	// MemStoreKey defines the in-memory store key
 	MemStoreKey = "mem_" + StoreKey
+	ObjStoreKey = "o:" + StoreKey
 )
 
 var (

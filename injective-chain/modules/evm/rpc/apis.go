@@ -3,6 +3,7 @@ package rpc
 import (
 	"fmt"
 
+	appconfig "github.com/InjectiveLabs/injective-core/cmd/injectived/config"
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/server"
 	"github.com/ethereum/go-ethereum/rpc"
@@ -46,7 +47,7 @@ type APICreator = func(
 	ctx *server.Context,
 	clientCtx client.Context,
 	stream *stream.RPCStream,
-	allowUnprotectedTxs bool,
+	jsonRPCConfig appconfig.JSONRPCConfig,
 	indexer chaintypes.EVMTxIndexer,
 ) []rpc.API
 
@@ -58,24 +59,32 @@ func init() {
 		EthNamespace: func(ctx *server.Context,
 			clientCtx client.Context,
 			stream *stream.RPCStream,
-			allowUnprotectedTxs bool,
+			jsonRPCConfig appconfig.JSONRPCConfig,
 			indexer chaintypes.EVMTxIndexer,
 		) []rpc.API {
-			evmBackend := backend.NewBackend(ctx, ctx.Logger, clientCtx, allowUnprotectedTxs, indexer)
-			return []rpc.API{
+			evmBackend := backend.NewBackend(ctx, ctx.Logger, clientCtx, jsonRPCConfig, indexer)
+			apis := []rpc.API{
 				{
 					Namespace: EthNamespace,
 					Version:   apiVersion,
 					Service:   eth.NewPublicAPI(ctx.Logger, evmBackend),
 				},
-				{
-					Namespace: EthNamespace,
-					Version:   apiVersion,
-					Service:   filters.NewPublicAPI(ctx.Logger, clientCtx, stream, evmBackend),
-				},
 			}
+
+			if stream == nil {
+				ctx.Logger.Info("skipping eth filter API registration because RPC stream is unavailable")
+				return apis
+			}
+
+			apis = append(apis, rpc.API{
+				Namespace: EthNamespace,
+				Version:   apiVersion,
+				Service:   filters.NewPublicAPI(ctx.Logger, clientCtx, stream, evmBackend),
+			})
+
+			return apis
 		},
-		Web3Namespace: func(*server.Context, client.Context, *stream.RPCStream, bool, chaintypes.EVMTxIndexer) []rpc.API {
+		Web3Namespace: func(*server.Context, client.Context, *stream.RPCStream, appconfig.JSONRPCConfig, chaintypes.EVMTxIndexer) []rpc.API {
 			return []rpc.API{
 				{
 					Namespace: Web3Namespace,
@@ -84,7 +93,7 @@ func init() {
 				},
 			}
 		},
-		NetNamespace: func(_ *server.Context, clientCtx client.Context, _ *stream.RPCStream, _ bool, _ chaintypes.EVMTxIndexer) []rpc.API {
+		NetNamespace: func(_ *server.Context, clientCtx client.Context, _ *stream.RPCStream, _ appconfig.JSONRPCConfig, _ chaintypes.EVMTxIndexer) []rpc.API {
 			return []rpc.API{
 				{
 					Namespace: NetNamespace,
@@ -96,10 +105,10 @@ func init() {
 		PersonalNamespace: func(ctx *server.Context,
 			clientCtx client.Context,
 			_ *stream.RPCStream,
-			allowUnprotectedTxs bool,
+			jsonRPCConfig appconfig.JSONRPCConfig,
 			indexer chaintypes.EVMTxIndexer,
 		) []rpc.API {
-			evmBackend := backend.NewBackend(ctx, ctx.Logger, clientCtx, allowUnprotectedTxs, indexer)
+			evmBackend := backend.NewBackend(ctx, ctx.Logger, clientCtx, jsonRPCConfig, indexer)
 			return []rpc.API{
 				{
 					Namespace: PersonalNamespace,
@@ -108,7 +117,7 @@ func init() {
 				},
 			}
 		},
-		TxPoolNamespace: func(ctx *server.Context, _ client.Context, _ *stream.RPCStream, _ bool, _ chaintypes.EVMTxIndexer) []rpc.API {
+		TxPoolNamespace: func(ctx *server.Context, _ client.Context, _ *stream.RPCStream, _ appconfig.JSONRPCConfig, _ chaintypes.EVMTxIndexer) []rpc.API {
 			return []rpc.API{
 				{
 					Namespace: TxPoolNamespace,
@@ -120,10 +129,10 @@ func init() {
 		DebugNamespace: func(ctx *server.Context,
 			clientCtx client.Context,
 			_ *stream.RPCStream,
-			allowUnprotectedTxs bool,
+			jsonRPCConfig appconfig.JSONRPCConfig,
 			indexer chaintypes.EVMTxIndexer,
 		) []rpc.API {
-			evmBackend := backend.NewBackend(ctx, ctx.Logger, clientCtx, allowUnprotectedTxs, indexer)
+			evmBackend := backend.NewBackend(ctx, ctx.Logger, clientCtx, jsonRPCConfig, indexer)
 			return []rpc.API{
 				{
 					Namespace: DebugNamespace,
@@ -135,10 +144,10 @@ func init() {
 		MinerNamespace: func(ctx *server.Context,
 			clientCtx client.Context,
 			_ *stream.RPCStream,
-			allowUnprotectedTxs bool,
+			jsonRPCConfig appconfig.JSONRPCConfig,
 			indexer chaintypes.EVMTxIndexer,
 		) []rpc.API {
-			evmBackend := backend.NewBackend(ctx, ctx.Logger, clientCtx, allowUnprotectedTxs, indexer)
+			evmBackend := backend.NewBackend(ctx, ctx.Logger, clientCtx, jsonRPCConfig, indexer)
 			return []rpc.API{
 				{
 					Namespace: MinerNamespace,
@@ -150,10 +159,10 @@ func init() {
 		InjectiveNamespace: func(ctx *server.Context,
 			clientCtx client.Context,
 			_ *stream.RPCStream,
-			allowUnprotectedTxs bool,
+			jsonRPCConfig appconfig.JSONRPCConfig,
 			indexer chaintypes.EVMTxIndexer,
 		) []rpc.API {
-			evmBackend := backend.NewBackend(ctx, ctx.Logger, clientCtx, allowUnprotectedTxs, indexer)
+			evmBackend := backend.NewBackend(ctx, ctx.Logger, clientCtx, jsonRPCConfig, indexer)
 			return []rpc.API{
 				{
 					Namespace: InjectiveNamespace,
@@ -169,15 +178,14 @@ func init() {
 func GetRPCAPIs(ctx *server.Context,
 	clientCtx client.Context,
 	rpcStream *stream.RPCStream,
-	allowUnprotectedTxs bool,
+	jsonRPCConfig appconfig.JSONRPCConfig,
 	indexer chaintypes.EVMTxIndexer,
-	selectedAPIs []string,
 ) []rpc.API {
 	var apis []rpc.API
 
-	for _, ns := range selectedAPIs {
+	for _, ns := range jsonRPCConfig.API {
 		if creator, ok := apiCreators[ns]; ok {
-			apis = append(apis, creator(ctx, clientCtx, rpcStream, allowUnprotectedTxs, indexer)...)
+			apis = append(apis, creator(ctx, clientCtx, rpcStream, jsonRPCConfig, indexer)...)
 		} else {
 			ctx.Logger.Error("invalid namespace value", "namespace", ns)
 		}

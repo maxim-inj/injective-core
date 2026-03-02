@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 10
     env:
-      JENNAS_TOKEN: ${{ secrets.JENNA_OPEN_SOURCE_TOKEN }}
+      GH_TOKEN: ${{ secrets.GH_TOKEN }}
       OS_REPO: "InjectiveFoundation/injective-core"
     steps:
       - name: Checkout source repository with tags
@@ -27,6 +27,7 @@ jobs:
         with:
           repository: ${{ github.repository }}
           token: ${{ github.token }}
+          persist-credentials: false
           fetch-depth: 0
           fetch-tags: true
 
@@ -68,7 +69,15 @@ jobs:
 
       - name: Mirror tagged commit and tag to target public branch
         run: |
-          REMOTE_URL="https://achilleas-kal:${JENNAS_TOKEN}@github.com/${OS_REPO}.git"
+          if [[ -z "${GH_TOKEN}" ]]; then
+            echo "GH_TOKEN is not set"
+            exit 1
+          fi
+
+          # Remove checkout auth header so push uses GH_TOKEN instead of github-actions[bot].
+          git config --local --unset-all http.https://github.com/.extraheader || true
+
+          REMOTE_URL="https://x-access-token:${GH_TOKEN}@github.com/${OS_REPO}.git"
           TAG="${{ steps.resolve.outputs.tag }}"
           TAG_COMMIT="${{ steps.resolve.outputs.tag_commit }}"
           TARGET_BRANCH="${{ steps.resolve.outputs.target_branch }}"

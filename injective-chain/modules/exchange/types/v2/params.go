@@ -269,10 +269,6 @@ func (p Params) Validate() error {
 		return fmt.Errorf("post_only_mode_blocks_amount_after_downtime is incorrect: %w", err)
 	}
 
-	if err := ValidateEnforcedRestrictionsContracts(p.EnforcedRestrictionsContracts); err != nil {
-		return fmt.Errorf("enforced_restrictions_contracts are invalid: %w", err)
-	}
-
 	return nil
 }
 
@@ -362,17 +358,6 @@ func ValidateEVMAddresses(addresses []string) error {
 		if !ethcommon.IsHexAddress(addr) {
 			return fmt.Errorf("address is not in EVM format: %s", addr)
 		}
-	}
-
-	return nil
-}
-
-func ValidateEnforcedRestrictionsContracts(contracts []EnforcedRestrictionsContract) error {
-	for _, contract := range contracts {
-		if !ethcommon.IsHexAddress(contract.ContractAddress) {
-			return fmt.Errorf("contract address is not in EVM format: %s", contract.ContractAddress)
-		}
-		// pause_event_signature can be empty (will default to "Pause()")
 	}
 
 	return nil

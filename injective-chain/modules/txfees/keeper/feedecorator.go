@@ -18,11 +18,13 @@ import (
 // CONTRACT: Tx must implement FeeTx to use MempoolFeeDecorator.
 type MempoolFeeDecorator struct {
 	TxFeesKeeper *Keeper
+	VerifyFee    bool
 }
 
-func NewMempoolFeeDecorator(txFeesKeeper *Keeper) MempoolFeeDecorator {
+func NewMempoolFeeDecorator(txFeesKeeper *Keeper, verifyFee bool) MempoolFeeDecorator {
 	return MempoolFeeDecorator{
 		TxFeesKeeper: txFeesKeeper,
+		VerifyFee:    verifyFee,
 	}
 }
 
@@ -56,6 +58,11 @@ func (mfd MempoolFeeDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate b
 	// I want ctx.IsDeliverTx() but that doesn't exist.
 	if !ctx.IsCheckTx() && !ctx.IsReCheckTx() {
 		mfd.TxFeesKeeper.CurFeeState.DeliverTxCode(ctx, feeTx)
+	}
+
+	if !mfd.VerifyFee {
+		// Skip dynamic fee enforcement on non-EVM routes, while still tracking gas usage.
+		return next(ctx, tx, simulate)
 	}
 
 	minBaseGasPrice := mfd.GetMinBaseGasPriceForTx(ctx, feeTx)

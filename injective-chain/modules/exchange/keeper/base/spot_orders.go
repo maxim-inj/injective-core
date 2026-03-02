@@ -125,6 +125,137 @@ func (k *BaseKeeper) IterateSpotLimitOrdersByAccountAddress(
 	})
 }
 
+// GetSpotOrderSubaccountIDsByAccountAddress returns the unique subaccount IDs that have spot limit orders
+// in the given market for the given account address.
+// It skip-scans the order index keys by nonce, reading only O(subaccounts) keys instead of O(orders).
+func (k *BaseKeeper) GetSpotOrderSubaccountIDsByAccountAddress(
+	ctx sdk.Context,
+	marketID common.Hash,
+	accountAddress sdk.AccAddress,
+) []common.Hash {
+	ctx, doneFn := metrics.ReportFuncCallAndTimingSdkCtx(ctx, k.svcTags)
+	defer doneFn()
+
+	store := k.getStore(ctx)
+
+	// Index key structure after AccountAddress prefix: nonce (12 bytes) + orderHash (32 bytes)
+	// SubaccountID = accountAddress (20 bytes) + nonce (12 bytes)
+	const nonceLen = common.HashLength - common.AddressLength
+
+	var result []common.Hash
+	seen := make(map[common.Hash]struct{})
+
+	for _, isBuy := range []bool{true, false} {
+		orderIndexStore := prefix.NewStore(store, types.GetSpotLimitOrderIndexByAccountAddressPrefix(marketID, isBuy, accountAddress))
+		result = collectSubaccountsBySkipScan(orderIndexStore, nonceLen, accountAddress, result, seen)
+	}
+
+	return result
+}
+
+// GetTransientSpotOrderSubaccountIDsByAccountAddress returns the unique subaccount IDs that have transient
+// spot limit orders in the given market for the given account address.
+// It uses a ranged iterator scoped to the address prefix of the transient order index.
+func (k *BaseKeeper) GetTransientSpotOrderSubaccountIDsByAccountAddress(
+	ctx sdk.Context,
+	marketID common.Hash,
+	accountAddress sdk.AccAddress,
+) []common.Hash {
+	ctx, doneFn := metrics.ReportFuncCallAndTimingSdkCtx(ctx, k.svcTags)
+	defer doneFn()
+
+	store := k.getTransientStore(ctx)
+
+	// Transient index key (after SpotLimitOrdersIndexPrefix + marketID + isBuy):
+	//   subaccountID (32B) + orderHash (32B)
+	// subaccountID = address (20B) + nonce (12B)
+	// Range by address prefix to only visit this user's entries.
+	start := make([]byte, common.HashLength)
+	copy(start, accountAddress.Bytes())
+
+	end := incrementBytes(accountAddress.Bytes())
+	var endKey []byte
+	if end != nil {
+		endKey = make([]byte, common.HashLength)
+		copy(endKey, end)
+	}
+
+	var result []common.Hash
+	seen := make(map[common.Hash]struct{})
+
+	for _, isBuy := range []bool{true, false} {
+		indexPrefix := append(types.SpotLimitOrdersIndexPrefix, types.MarketDirectionPrefix(marketID, isBuy)...)
+		indexStore := prefix.NewStore(store, indexPrefix)
+
+		iterateSafe(indexStore.Iterator(start, endKey), func(key, _ []byte) bool {
+			subaccountID := common.BytesToHash(key[:common.HashLength])
+			if _, ok := seen[subaccountID]; !ok {
+				seen[subaccountID] = struct{}{}
+				result = append(result, subaccountID)
+			}
+			return false
+		})
+	}
+
+	return result
+}
+
+// collectSubaccountsBySkipScan reads only the first key per nonce prefix from the
+// given store, building unique subaccount IDs without iterating all orders.
+// The seen map is used to deduplicate across multiple calls (e.g. buy + sell sides).
+func collectSubaccountsBySkipScan(
+	store storetypes.KVStore,
+	nonceLen int,
+	accountAddress sdk.AccAddress,
+	result []common.Hash,
+	seen map[common.Hash]struct{},
+) []common.Hash {
+	var start []byte // nil is beginning
+
+	for {
+		iter := store.Iterator(start, nil)
+		if !iter.Valid() {
+			iter.Close()
+			return result
+		}
+
+		key := iter.Key()
+		iter.Close()
+
+		// extract the nonce and build the subaccount ID
+		nonce := key[:nonceLen]
+
+		var subaccountID common.Hash
+		copy(subaccountID[:common.AddressLength], accountAddress)
+		copy(subaccountID[common.AddressLength:], nonce)
+
+		if _, ok := seen[subaccountID]; !ok {
+			seen[subaccountID] = struct{}{}
+			result = append(result, subaccountID)
+		}
+
+		// skip to the next nonce: increment the nonce bytes to form the exclusive start key
+		start = incrementBytes(nonce)
+		if start == nil {
+			return result // nonce overflow, no more nonces possible
+		}
+	}
+}
+
+// incrementBytes returns the lexicographically next byte slice of the same length,
+// or nil if it overflows (all 0xFF).
+func incrementBytes(b []byte) []byte {
+	result := make([]byte, len(b))
+	copy(result, b)
+	for i := len(result) - 1; i >= 0; i-- {
+		result[i]++
+		if result[i] != 0 {
+			return result
+		}
+	}
+	return nil // overflow
+}
+
 // GetSpotLimitOrderByPrice returns active spot limit Order from hash and price.
 func (k *BaseKeeper) GetSpotLimitOrderByPrice(
 	ctx sdk.Context,

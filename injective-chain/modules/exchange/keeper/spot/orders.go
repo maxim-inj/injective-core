@@ -385,6 +385,40 @@ func (k SpotKeeper) CancelAllSpotLimitOrders(
 	}
 }
 
+// CancelAllSpotLimitOrdersForAddress cancels all resting and transient spot limit orders for all subaccounts
+// belonging to the given account address in the specified market.
+func (k SpotKeeper) CancelAllSpotLimitOrdersForAddress(
+	ctx sdk.Context,
+	market *v2.SpotMarket,
+	marketID common.Hash,
+	accountAddress sdk.AccAddress,
+) {
+	ctx, doneFn := metrics.ReportFuncCallAndTimingSdkCtx(ctx, k.svcTags)
+	defer doneFn()
+
+	if !market.StatusSupportsOrderCancellations() {
+		return
+	}
+
+	subaccountIDs := k.GetSpotOrderSubaccountIDsByAccountAddress(ctx, marketID, accountAddress)
+	transientSubaccountIDs := k.GetTransientSpotOrderSubaccountIDsByAccountAddress(ctx, marketID, accountAddress)
+
+	seen := make(map[common.Hash]struct{}, len(subaccountIDs))
+	for _, id := range subaccountIDs {
+		seen[id] = struct{}{}
+	}
+	for _, id := range transientSubaccountIDs {
+		if _, ok := seen[id]; !ok {
+			seen[id] = struct{}{}
+			subaccountIDs = append(subaccountIDs, id)
+		}
+	}
+
+	for _, subaccountID := range subaccountIDs {
+		k.CancelAllSpotLimitOrders(ctx, market, subaccountID, marketID)
+	}
+}
+
 // CancelSpotLimitOrder cancels the SpotLimitOrder
 func (k SpotKeeper) CancelSpotLimitOrder(
 	ctx sdk.Context,

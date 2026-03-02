@@ -4,6 +4,7 @@ import (
 	"cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/gogoproto/proto"
+	gethtypes "github.com/ethereum/go-ethereum/common"
 
 	"github.com/InjectiveLabs/injective-core/injective-chain/modules/permissions/types"
 )
@@ -11,6 +12,33 @@ import (
 func (k Keeper) HasNamespace(ctx sdk.Context, denom string) bool {
 	store := k.getNamespacesStore(ctx)
 	return store.Has([]byte(denom))
+}
+
+// CreateNamespaceForMigration creates a namespace directly in state.
+// It is intended for trusted migration code paths and bypasses msg-level checks,
+// such as EVM hook interface validation against deployed contracts.
+func (k Keeper) CreateNamespaceForMigration(ctx sdk.Context, ns types.Namespace) error {
+	if ns.Denom == "" {
+		return errors.Wrap(types.ErrUnknownDenom, "namespace denom cannot be empty")
+	}
+
+	if ns.EvmHook != "" && !gethtypes.IsHexAddress(ns.EvmHook) {
+		return errors.Wrapf(types.ErrInvalidEVMHook, "invalid EvmHook address for denom %s: %s", ns.Denom, ns.EvmHook)
+	}
+
+	if err := ns.ValidateRoles(false); err != nil {
+		return err
+	}
+
+	if err := ns.ValidatePolicies(); err != nil {
+		return err
+	}
+
+	if k.HasNamespace(ctx, ns.Denom) {
+		return nil
+	}
+
+	return k.createNamespace(ctx, ns)
 }
 
 // GetNamespace return namespace for the denom. If includeFull is true, then it also populates AddressRoles and RolePermissions fields inside namespace.

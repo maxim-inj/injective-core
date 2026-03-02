@@ -450,6 +450,11 @@ func (k DerivativesMsgServer) handleLiquidatedPosition(
 	k.SavePosition(ctx, market.MarketID(), positionSubaccountID, position)
 	k.SetMarketBalance(ctx, market.MarketID(), k.GetMarketBalance(ctx, market.MarketID()).Add(mktBalDelta))
 
+	// OI tracks both sides (long + short), each reduced by the closed quantity
+	closedQty := liqDelta.ExecutionQuantity
+	openInterestDelta := closedQty.MulInt64(-2)
+	k.ApplyOpenInterestDeltaForMarket(ctx, market.MarketID(), openInterestDelta)
+
 	var cumulativeFunding math.LegacyDec
 	if funding != nil {
 		cumulativeFunding = funding.CumulativeFunding
