@@ -116,7 +116,7 @@ func NewAnteHandler(
 			eip712SigVerificationDecorator = noopAnteDecorator{}
 		}
 
-		var sigVerificationDecorator sdk.AnteDecorator = NewSigVerificationDecorator(ak, options.SignModeHandler)
+		var sigVerificationDecorator sdk.AnteDecorator = authante.NewSigVerificationDecorator(ak, options.SignModeHandler)
 		if noSignatureVerification {
 			sigVerificationDecorator = noopAnteDecorator{}
 		}

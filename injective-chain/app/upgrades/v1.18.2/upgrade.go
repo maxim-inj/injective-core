@@ -1,4 +1,4 @@
-package v1dot18dot1
+package v1dot18dot2
 
 import (
 	"strings"
@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	UpgradeVersion = "v1.18.1"
+	UpgradeVersion = "v1.18.2"
 
 	MainnetUSDC = "0xa00C59fF5a080D2b954d0c75e46E22a0c371235a"
 	TestnetUSDC = "0x0C382e685bbeeFE5d3d9C29e29E341fEE8E84C5d"
@@ -36,13 +36,7 @@ func UpgradeSteps() []*upgrades.UpgradeHandlerStep {
 		upgrades.NewUpgradeHandlerStep(
 			"Migrate EnforcedRestictionsContracts",
 			UpgradeVersion,
-			upgrades.TestnetChainID,
-			MigrateEnforcedRestrictionContracts,
-		),
-		upgrades.NewUpgradeHandlerStep(
-			"Migrate EnforcedRestictionsContracts",
-			UpgradeVersion,
-			upgrades.DevnetChainID,
+			upgrades.MainnetChainID,
 			MigrateEnforcedRestrictionContracts,
 		),
 	}

@@ -36,7 +36,7 @@ Ref: https://keepachangelog.com/en/1.1.0/
 
 ## [Unreleased]
 
-## [v1.18.1](https://github.com/InjectiveFoundation/injective-core/releases/tag/v1.18.1) - 2026-03-05
+## [v1.18.2](https://github.com/InjectiveFoundation/injective-core/releases/tag/v1.18.2) - 2026-03-09
 
 ### Features
 
@@ -51,6 +51,7 @@ Ref: https://keepachangelog.com/en/1.1.0/
 
 - (exchange)  Fixed Open Interest delta calculation when executing a position offset
 - (evm)  Evm txns indexing in RPC shifted when block contains reverted txns
+- (ledger)  Reverted Ledger multisig feature to restore Cosmos multisig verification (#2351)
 
 ## [v1.18.0](https://github.com/InjectiveFoundation/injective-core/releases/tag/v1.18.0) - 2026-02-19
 
