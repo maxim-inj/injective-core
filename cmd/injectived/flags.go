@@ -27,6 +27,21 @@ const (
 	FlagJSONRPCEnableMetrics       = "json-rpc.metrics"
 	FlagJSONRPCMetricsAddress      = "json-rpc.metrics-address"
 	FlagJSONRPCReturnDataLimit     = "json-rpc.return-data-limit"
+
+	FlagJSONRPCDebugEnable             = "json-rpc-debug.enable"
+	FlagJSONRPCDebugAPI                = "json-rpc-debug.api"
+	FlagJSONRPCDebugAddress            = "json-rpc-debug.address"
+	FlagJSONRPCDebugGasCap             = "json-rpc-debug.gas-cap"
+	FlagJSONRPCDebugEVMTimeout         = "json-rpc-debug.evm-timeout"
+	FlagJSONRPCDebugTxFeeCap           = "json-rpc-debug.txfee-cap"
+	FlagJSONRPCDebugFilterCap          = "json-rpc-debug.filter-cap"
+	FlagJSONRPCDebugFeeHistoryCap      = "json-rpc-debug.feehistory-cap"
+	FlagJSONRPCDebugLogsCap            = "json-rpc-debug.logs-cap"
+	FlagJSONRPCDebugBlockRangeCap      = "json-rpc-debug.block-range-cap"
+	FlagJSONRPCDebugHTTPTimeout        = "json-rpc-debug.http-timeout"
+	FlagJSONRPCDebugHTTPIdleTimeout    = "json-rpc-debug.http-idle-timeout"
+	FlagJSONRPCDebugMaxOpenConnections = "json-rpc-debug.max-open-connections"
+	FlagJSONRPCDebugReturnDataLimit    = "json-rpc-debug.return-data-limit"
 )
 
 const (

@@ -127,7 +127,7 @@ func (b *Backend) FeeHistory(
 	}
 
 	blocks := int64(userBlockCount)
-	maxBlockCount := int64(b.cfg.JSONRPC.FeeHistoryCap)
+	maxBlockCount := int64(b.rpcCfg.FeeHistoryCap)
 	if blocks > maxBlockCount {
 		return nil, fmt.Errorf("FeeHistory user block count %d higher than %d", blocks, maxBlockCount)
 	}

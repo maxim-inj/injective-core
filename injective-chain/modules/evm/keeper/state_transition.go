@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"math"
 	"math/big"
 	"sort"
 
@@ -181,8 +182,17 @@ func (k *Keeper) ApplyTransaction(ctx sdk.Context, msgEth *types.MsgEthereumTx) 
 		tmpCtx, commit = ctx.CacheContext()
 	}
 
-	// replace gas meter with InfiniteGasMeter to not account for "Cosmos"-style CRUD operations gas costs and only use EVM returned gas
-	tmpCtx = tmpCtx.WithGasMeter(storetypes.NewInfiniteGasMeter())
+	marginFactor := uint64(10) // allow for some leeway in terms of gas consumed due to differences between Cosmos and EVM gas metering
+	newGasLimit, overflow := mulUint64(msg.GasLimit, marginFactor)
+	if overflow {
+		newGasLimit = msg.GasLimit
+	}
+	if blockGasMeter := ctx.BlockGasMeter(); blockGasMeter != nil && newGasLimit > blockGasMeter.GasRemaining() {
+		newGasLimit = blockGasMeter.GasRemaining()
+	}
+	// set gas limit and non-zero gas costs
+	tmpCtx = tmpCtx.WithGasMeter(storetypes.NewGasMeter(newGasLimit)).WithKVGasConfig(storetypes.KVGasConfig()).
+		WithTransientKVGasConfig(storetypes.TransientGasConfig())
 
 	// pass true to commit the StateDB
 	res, applyMessageErr := k.ApplyMessageWithConfig(tmpCtx, msg, cfg, true)
@@ -482,4 +492,14 @@ func (k *Keeper) ApplyMessageWithConfig(
 		BlockHash:        ctx.HeaderHash(),
 		ExecutionGasUsed: executionGasUsed,
 	}, nil
+}
+
+func mulUint64(a, b uint64) (uint64, bool) {
+	if a == 0 || b == 0 {
+		return 0, false
+	}
+	if a > math.MaxUint64/b {
+		return 0, true // overflow
+	}
+	return a * b, false
 }

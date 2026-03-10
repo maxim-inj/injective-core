@@ -8,6 +8,7 @@ import (
 
 	rpctypes "github.com/InjectiveLabs/injective-core/injective-chain/modules/evm/rpc/types"
 	evmtypes "github.com/InjectiveLabs/injective-core/injective-chain/modules/evm/types"
+	abci "github.com/cometbft/cometbft/abci/types"
 	cmrpcclient "github.com/cometbft/cometbft/rpc/client"
 	cmrpctypes "github.com/cometbft/cometbft/rpc/core/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -15,6 +16,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/pkg/errors"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
@@ -100,6 +102,187 @@ func (b *Backend) GetBlockByHash(hash common.Hash, fullTx bool) (map[string]inte
 	}
 
 	return res, nil
+}
+
+// GetBlockReceipts returns all ethereum transaction receipts for the provided block.
+//
+//nolint:revive // legacy receipt assembly path; intentionally preserved behavior with guarded fallbacks.
+func (b *Backend) GetBlockReceipts(blockNrOrHash rpctypes.BlockNumberOrHash) ([]map[string]any, error) {
+	var (
+		resBlock *cmrpctypes.ResultBlock
+		err      error
+	)
+
+	switch {
+	case blockNrOrHash.BlockHash != nil && blockNrOrHash.BlockNumber != nil:
+		return nil, errors.New("types BlockHash and BlockNumber cannot be both set")
+	case blockNrOrHash.BlockHash != nil:
+		resBlock, err = b.TendermintBlockByHash(*blockNrOrHash.BlockHash)
+	case blockNrOrHash.BlockNumber != nil:
+		resBlock, err = b.TendermintBlockByNumber(*blockNrOrHash.BlockNumber)
+	default:
+		return nil, errors.New("types BlockHash and BlockNumber cannot be both nil")
+	}
+
+	if err != nil {
+		return nil, err
+	}
+	if resBlock == nil || resBlock.Block == nil {
+		return nil, nil
+	}
+
+	blockRes, err := b.TendermintBlockResultByNumber(&resBlock.Block.Height)
+	if err != nil {
+		b.logger.Warn("failed to retrieve block results", "height", resBlock.Block.Height, "error", err.Error())
+		return nil, nil
+	}
+	if blockRes == nil {
+		return nil, nil
+	}
+
+	receipts := make([]map[string]any, 0)
+	signer := ethtypes.LatestSignerForChainID(b.ChainID().ToInt())
+	blockHash := common.BytesToHash(resBlock.Block.Header.Hash()).Hex()
+	blockNumber := hexutil.Uint64(resBlock.Block.Height)
+
+	var (
+		ethTxIndex             int32
+		cumulativeBlockGasUsed uint64
+	)
+
+	for txIndex, txBz := range resBlock.Block.Txs {
+		if txIndex >= len(blockRes.TxResults) {
+			b.logger.Warn("block results shorter than tx list", "height", resBlock.Block.Height, "txIndex", txIndex)
+			break
+		}
+
+		txResult := blockRes.TxResults[txIndex]
+		if txResult == nil {
+			b.logger.Warn("missing tx result entry", "height", resBlock.Block.Height, "txIndex", txIndex)
+			continue
+		}
+
+		tx, err := b.clientCtx.TxConfig.TxDecoder()(txBz)
+		if err != nil {
+			b.logger.Warn("failed to decode tx in block", "height", resBlock.Block.Height, "txIndex", txIndex, "error", err.Error())
+			cumulativeBlockGasUsed += uint64(txResult.GasUsed)
+			continue
+		}
+
+		parsedTxs, parsedErr := rpctypes.ParseTxResult(txResult, tx)
+		if parsedErr != nil && (txResult.Code == abci.CodeTypeOK || txResult.Codespace == evmtypes.ModuleName) {
+			b.logger.Warn("failed to parse tx events", "height", resBlock.Block.Height, "txIndex", txIndex, "error", parsedErr.Error())
+		}
+
+		var cumulativeTxEthGasUsed uint64
+		for msgIndex, msg := range tx.GetMsgs() {
+			ethMsg, ok := msg.(*evmtypes.MsgEthereumTx)
+			if !ok {
+				continue
+			}
+
+			txData := ethMsg.AsTransaction()
+			if txData == nil {
+				return nil, errors.New("failed to unpack tx data")
+			}
+
+			txHash := ethMsg.Hash()
+			txFailed := false
+			txGasUsed := ethMsg.GetGas()
+
+			switch {
+			case txResult.Code != abci.CodeTypeOK && txResult.Codespace != evmtypes.ModuleName:
+				// Exceeds block gas limit scenario.
+				txFailed = true
+			case parsedTxs == nil:
+				// If tx parsing fails, fall back to the tx result status.
+				txFailed = txResult.Code != abci.CodeTypeOK
+			default:
+				parsedTx := parsedTxs.GetTxByMsgIndex(msgIndex)
+				if parsedTx == nil {
+					b.logger.Warn("msg index not found in parsed tx result", "height", resBlock.Block.Height, "txIndex", txIndex, "msgIndex", msgIndex)
+					txFailed = txResult.Code != abci.CodeTypeOK
+				} else {
+					if parsedTx.EthTxIndex >= 0 && parsedTx.EthTxIndex != ethTxIndex {
+						b.logger.Error("eth tx index don't match", "expect", ethTxIndex, "found", parsedTx.EthTxIndex)
+					}
+					txHash = parsedTx.Hash
+					txGasUsed = parsedTx.GasUsed
+					txFailed = parsedTx.Failed
+				}
+			}
+
+			cumulativeTxEthGasUsed += txGasUsed
+
+			var status hexutil.Uint
+			if txFailed {
+				status = hexutil.Uint(ethtypes.ReceiptStatusFailed)
+			} else {
+				status = hexutil.Uint(ethtypes.ReceiptStatusSuccessful)
+			}
+
+			from, err := ethMsg.GetSenderLegacy(signer)
+			if err != nil {
+				return nil, err
+			}
+
+			logs, err := evmtypes.DecodeMsgLogs(
+				txResult.Data,
+				msgIndex,
+				uint64(blockRes.Height),
+			)
+			if err != nil {
+				b.logger.Warn("failed to parse logs", "hash", txHash, "error", err.Error())
+			}
+
+			receipt := map[string]any{
+				// Consensus fields: These fields are defined by the Yellow Paper
+				"status":            status,
+				"cumulativeGasUsed": hexutil.Uint64(cumulativeBlockGasUsed + cumulativeTxEthGasUsed),
+				"logsBloom":         ethtypes.BytesToBloom(evmtypes.LogsBloom(logs)),
+				"logs":              logs,
+
+				// Implementation fields: These fields are added by geth when processing a transaction.
+				"transactionHash": txHash,
+				"contractAddress": nil,
+				"gasUsed":         hexutil.Uint64(txGasUsed),
+
+				// Inclusion information
+				"blockHash":        blockHash,
+				"blockNumber":      blockNumber,
+				"transactionIndex": hexutil.Uint64(ethTxIndex),
+
+				// https://github.com/foundry-rs/foundry/issues/7640
+				"effectiveGasPrice": (*hexutil.Big)(txData.GasPrice()),
+
+				// sender and receiver (contract or EOA) addresses
+				"from": from,
+				"to":   txData.To(),
+				"type": hexutil.Uint(txData.Type()),
+			}
+
+			if logs == nil {
+				receipt["logs"] = [][]*ethtypes.Log{}
+			}
+
+			// If the ContractAddress is 20 0x0 bytes, assume it is not a contract creation.
+			if txData.To() == nil {
+				receipt["contractAddress"] = crypto.CreateAddress(from, txData.Nonce())
+			}
+
+			if txData.Type() == ethtypes.DynamicFeeTxType {
+				price := txData.GasPrice()
+				receipt["effectiveGasPrice"] = hexutil.Big(*price)
+			}
+
+			receipts = append(receipts, receipt)
+			ethTxIndex++
+		}
+
+		cumulativeBlockGasUsed += uint64(txResult.GasUsed)
+	}
+
+	return receipts, nil
 }
 
 // GetBlockTransactionCountByHash returns the number of Ethereum transactions in

@@ -277,42 +277,42 @@ func (b *Backend) SetGasPrice(gasPrice hexutil.Big) bool {
 // UnprotectedAllowed returns the node configuration value for allowing
 // unprotected transactions (i.e not replay-protected)
 func (b Backend) UnprotectedAllowed() bool {
-	return b.allowUnprotectedTxs
+	return b.rpcCfg.AllowUnprotectedTxs
 }
 
 // RPCGasCap is the global gas cap for eth-call variants.
 func (b *Backend) RPCGasCap() uint64 {
-	return b.cfg.JSONRPC.GasCap
+	return b.rpcCfg.GasCap
 }
 
 // RPCEVMTimeout is the global evm timeout for eth-call variants.
 func (b *Backend) RPCEVMTimeout() time.Duration {
-	return b.cfg.JSONRPC.EVMTimeout
+	return b.rpcCfg.EVMTimeout
 }
 
 // RPCGasCap is the global gas cap for eth-call variants.
 func (b *Backend) RPCTxFeeCap() float64 {
-	return b.cfg.JSONRPC.TxFeeCap
+	return b.rpcCfg.TxFeeCap
 }
 
 // RPCFilterCap is the limit for total number of filters that can be created
 func (b *Backend) RPCFilterCap() int32 {
-	return b.cfg.JSONRPC.FilterCap
+	return b.rpcCfg.FilterCap
 }
 
 // RPCFeeHistoryCap is the limit for total number of blocks that can be fetched
 func (b *Backend) RPCFeeHistoryCap() int32 {
-	return b.cfg.JSONRPC.FeeHistoryCap
+	return b.rpcCfg.FeeHistoryCap
 }
 
 // RPCLogsCap defines the max number of results can be returned from single `eth_getLogs` query.
 func (b *Backend) RPCLogsCap() int32 {
-	return b.cfg.JSONRPC.LogsCap
+	return b.rpcCfg.LogsCap
 }
 
 // RPCBlockRangeCap defines the max block range allowed for `eth_getLogs` query.
 func (b *Backend) RPCBlockRangeCap() int32 {
-	return b.cfg.JSONRPC.BlockRangeCap
+	return b.rpcCfg.BlockRangeCap
 }
 
 // RPCMinGasPrice returns the minimum gas price for a transaction obtained from

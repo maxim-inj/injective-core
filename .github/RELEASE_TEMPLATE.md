@@ -1,13 +1,20 @@
 # Injective $${{TAG}} Mainnet Upgrade 🥷
 
+📋 [Full Changelog](https://github.com/InjectiveFoundation/injective-core/blob/release/v1.18.x/CHANGELOG.md)
+
+## Source Code
+
+* Tag: [$${{TAG}}](https://github.com/InjectiveFoundation/injective-core/tree/$${{TAG}})
+* Branch: [release/v1.18.x](https://github.com/InjectiveFoundation/injective-core/tree/release/v1.18.x)
+
 ## Upgrade Guide
 
 Validators can find a step-by-step guide on the upgrade procedure in the long-form documentation: <https://docs.injective.network/infra/validator-mainnet/canonical-chain-upgrade-$${{TAG}}>
 
 ### Versions
 
-| Binary    | Version |Binary Release Hash & Code Commit|
-| -------- | ------- |------- |------- |
+| Binary    | Version | Code Commit|
+| -------- | ------- |------- |
 | injectived  | $${{TAG}}   |`$${{SOURCE_COMMIT}}`|
 | peggo  | $${{TAG}} |`$${{SOURCE_COMMIT}}`|
 

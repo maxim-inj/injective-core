@@ -35,10 +35,13 @@ import (
 
 var _ types.QueryServer = Keeper{}
 
+// Constants to add DoS protection and make the calls bounded.
+// Note: these have to be significantly higher that normal blocks on the chain,
+// and it's safe to have this since Tracing methods are gated on public nodes.
 const (
-	maxTraceTimeout             = 5 * time.Second
-	defaultEthCallGasCap uint64 = 50_000_000
-	maxPredecessorTxs           = 50
+	maxTraceTimeout             = 30 * time.Second
+	defaultEthCallGasCap uint64 = 500_000_000
+	maxPredecessorTxs           = 10000
 )
 
 // Account implements the Query/Account gRPC method

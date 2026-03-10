@@ -57,24 +57,33 @@ func extractMarketID(stdout []byte) (string, error) {
 }
 
 // SetupMarketsAndUsers sets up both spot and derivative markets with user wallets funded with quote denom.
+// When skipDenomCreation is true, it skips creating a factory denom and minting tokens (useful when the
+// quote denom already exists, e.g. an ERC20 token). In that case, the caller is responsible for ensuring
+// the marketLauncher has enough quote denom balance for the insurance fund deposit.
 // Returns the launched derivative and spot markets.
 func SetupMarketsAndUsers(
 	t *testing.T,
 	ctx context.Context,
 	chain *cosmos.CosmosChain,
 	marketLauncher ibc.Wallet,
+	quoteDenom string,
 	userWallets []ibc.Wallet,
+	skipDenomCreation bool,
 ) (*exchangev2.FullDerivativeMarket, *exchangev2.SpotMarket) {
 	t.Helper()
 
-	quoteDenom := fmt.Sprintf("factory/%s/usdt", marketLauncher.FormattedAddress())
 	proposalInitialDeposit := math.NewIntWithDecimal(1000, 18)
 	depositCoin := sdk.NewCoin(chain.Config().Denom, proposalInitialDeposit)
 
-	// *** Batch 1: Denom, Mints, Setup Proposals ***
-	prepareAndBroadcastSetupBatch(t, ctx, chain, marketLauncher, userWallets, quoteDenom, depositCoin)
+	if !skipDenomCreation {
+		// *** Factory Denom Creation + Minting ***
+		createFactoryDenomAndMint(t, ctx, chain, marketLauncher, userWallets, quoteDenom)
+	}
 
-	// *** Batch 2: Relay, Insurance, Spot Launch, Perp Launch ***
+	// *** Proposals: Min Notional + Price Feeder ***
+	prepareAndBroadcastProposalsBatch(t, ctx, chain, marketLauncher, quoteDenom, depositCoin)
+
+	// *** Relay, Insurance, Spot Launch, Perp Launch ***
 	prepareAndBroadcastLaunchBatch(t, ctx, chain, marketLauncher, quoteDenom, depositCoin)
 
 	// *** Query Markets ***
@@ -98,6 +107,34 @@ func SetupMarketsAndUsers(
 	return derivResp.Markets[0], spotResp.Markets[0]
 }
 
+// QueryDerivativeMarket queries a single derivative market by ID and status using gRPC.
+// The status parameter should match the MarketStatus enum name (e.g. "Active", "Paused", "ForcePaused").
+// The singular DerivativeMarket RPC only searches enabled markets, so we use the plural
+// DerivativeMarkets RPC with a market ID filter instead.
+func QueryDerivativeMarket(ctx context.Context, chain *cosmos.CosmosChain, marketID string, status string) (*exchangev2.FullDerivativeMarket, error) {
+	conn, err := grpc.NewClient(chain.GetHostGRPCAddress(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+
+	queryClient := exchangev2.NewQueryClient(conn)
+
+	resp, err := QueryRPC(ctx, queryClient.DerivativeMarkets, &exchangev2.QueryDerivativeMarketsRequest{
+		Status:    status,
+		MarketIds: []string{marketID},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	if len(resp.Markets) == 0 {
+		return nil, fmt.Errorf("derivative market %s with status %s not found", marketID, status)
+	}
+
+	return resp.Markets[0], nil
+}
+
 // QueryExchangeParams queries exchange params using gRPC
 func QueryExchangeParams(ctx context.Context, chain *cosmos.CosmosChain) (*exchangev2.Params, error) {
 	conn, err := grpc.NewClient(chain.GetHostGRPCAddress(), grpc.WithTransportCredentials(insecure.NewCredentials()))
@@ -116,19 +153,18 @@ func QueryExchangeParams(ctx context.Context, chain *cosmos.CosmosChain) (*excha
 	return &res.Params, nil
 }
 
-func prepareAndBroadcastSetupBatch(
+// createFactoryDenomAndMint creates a token-factory denom and mints to the launcher and all user wallets.
+func createFactoryDenomAndMint(
 	t *testing.T,
 	ctx context.Context,
 	chain *cosmos.CosmosChain,
 	marketLauncher ibc.Wallet,
 	userWallets []ibc.Wallet,
 	quoteDenom string,
-	depositCoin sdk.Coin,
 ) {
 	t.Helper()
 
 	txOpts := []cosmos.FactoryOpt{WithGas(2_000_000)}
-
 	msgs := []sdk.Msg{}
 
 	// 1. Create Quote Denom
@@ -160,7 +196,27 @@ func prepareAndBroadcastSetupBatch(
 		msgs = append(msgs, mintUser)
 	}
 
-	// 4. Proposal: Update Denom Min Notional
+	// Broadcast denom creation + minting
+	txResp := BroadcastTxBlock(t, ctx, chain, marketLauncher, txOpts, msgs...)
+	require.Equal(t, uint32(0), txResp.Code, "failed denom creation batch: %s", txResp.RawLog)
+}
+
+// prepareAndBroadcastProposalsBatch submits and passes governance proposals for
+// min notional and price feeder privilege.
+func prepareAndBroadcastProposalsBatch(
+	t *testing.T,
+	ctx context.Context,
+	chain *cosmos.CosmosChain,
+	marketLauncher ibc.Wallet,
+	quoteDenom string,
+	depositCoin sdk.Coin,
+) {
+	t.Helper()
+
+	txOpts := []cosmos.FactoryOpt{WithGas(2_000_000)}
+	msgs := []sdk.Msg{}
+
+	// 1. Proposal: Update Denom Min Notional
 	propMinNotional := &exchangev2.BatchExchangeModificationProposal{
 		Title:       "Update Denom Min Notional",
 		Description: "Set min notional for USDT",
@@ -191,7 +247,7 @@ func prepareAndBroadcastSetupBatch(
 	}
 	msgs = append(msgs, submitPropMinNotional)
 
-	// 5. Proposal: Grant Price Feeder Privilege
+	// 2. Proposal: Grant Price Feeder Privilege
 	propPriceFeeder := &oracletypes.GrantPriceFeederPrivilegeProposal{
 		Title:       "Market launcher can relay price",
 		Description: "Market launcher can relay price",
@@ -206,11 +262,11 @@ func prepareAndBroadcastSetupBatch(
 	require.NoError(t, submitPropPriceFeeder.SetContent(propPriceFeeder))
 	msgs = append(msgs, submitPropPriceFeeder)
 
-	// Broadcast Batch 1
+	// Broadcast proposals
 	txResp := BroadcastTxBlock(t, ctx, chain, marketLauncher, txOpts, msgs...)
-	require.Equal(t, uint32(0), txResp.Code, "failed setup batch: %s", txResp.RawLog)
+	require.Equal(t, uint32(0), txResp.Code, "failed proposals batch: %s", txResp.RawLog)
 
-	// Vote on Batch 1 Proposals
+	// Vote on proposals
 	propIDs, err := getProposalIDs(txResp.Events)
 	require.NoError(t, err)
 	require.Len(t, propIDs, 2, "expected 2 proposals in setup batch")

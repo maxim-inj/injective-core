@@ -109,6 +109,7 @@ type EVMBackend interface {
 	GetTxByTxIndex(height int64, txIndex uint) (*chaintypes.TxResult, error)
 	GetTransactionByBlockAndIndex(block *cmrpctypes.ResultBlock, idx hexutil.Uint) (*rpctypes.RPCTransaction, error)
 	GetTransactionReceipt(hash common.Hash) (map[string]interface{}, error)
+	GetBlockReceipts(blockNrOrHash rpctypes.BlockNumberOrHash) ([]map[string]any, error)
 	GetTransactionByBlockHashAndIndex(hash common.Hash, idx hexutil.Uint) (*rpctypes.RPCTransaction, error)
 	GetTransactionByBlockNumberAndIndex(blockNum rpctypes.BlockNumber, idx hexutil.Uint) (*rpctypes.RPCTransaction, error)
 	GetTxHashByEthHash(common.Hash) (common.Hash, error)
@@ -146,14 +147,14 @@ type ProcessBlocker func(
 
 // Backend implements the BackendI interface
 type Backend struct {
-	ctx                 context.Context
-	clientCtx           client.Context
-	queryClient         *rpctypes.QueryClient // gRPC query client
-	logger              log.Logger
-	cfg                 appconfig.Config
-	allowUnprotectedTxs bool
-	indexer             chaintypes.EVMTxIndexer
-	processBlocker      ProcessBlocker
+	ctx            context.Context
+	clientCtx      client.Context
+	queryClient    *rpctypes.QueryClient // gRPC query client
+	logger         log.Logger
+	cfg            appconfig.Config
+	rpcCfg         appconfig.JSONRPCConfig
+	indexer        chaintypes.EVMTxIndexer
+	processBlocker ProcessBlocker
 }
 
 // NewBackend creates a new Backend instance for cosmos and ethereum namespaces
@@ -161,7 +162,7 @@ func NewBackend(
 	ctx *server.Context,
 	logger log.Logger,
 	clientCtx client.Context,
-	allowUnprotectedTxs bool,
+	jsonRPCConfig appconfig.JSONRPCConfig,
 	indexer chaintypes.EVMTxIndexer,
 ) *Backend {
 	appConf, err := appconfig.ParseConfig(ctx.Viper)
@@ -170,13 +171,13 @@ func NewBackend(
 	}
 
 	b := &Backend{
-		ctx:                 context.Background(),
-		clientCtx:           clientCtx,
-		queryClient:         rpctypes.NewQueryClient(clientCtx),
-		logger:              logger.With("module", "backend"),
-		cfg:                 appConf,
-		allowUnprotectedTxs: allowUnprotectedTxs,
-		indexer:             indexer,
+		ctx:         context.Background(),
+		clientCtx:   clientCtx,
+		queryClient: rpctypes.NewQueryClient(clientCtx),
+		logger:      logger.With("module", "backend"),
+		cfg:         appConf,
+		rpcCfg:      jsonRPCConfig,
+		indexer:     indexer,
 	}
 	b.processBlocker = b.processBlock
 	return b

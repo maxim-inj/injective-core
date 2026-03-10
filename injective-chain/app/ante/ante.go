@@ -71,7 +71,7 @@ func newEVMAnteHandler(options HandlerOptions) (sdk.AnteHandler, error) {
 		SignModeHandler: options.SignModeHandler,
 		SigGasConsumer:  options.SigGasConsumer,
 		MaxTxGasWanted:  options.MaxEthTxGasWanted,
-		TxFeesDecorator: txfeeskeeper.NewMempoolFeeDecorator(options.TxFeesKeeper),
+		TxFeesDecorator: txfeeskeeper.NewMempoolFeeDecorator(options.TxFeesKeeper, true),
 		// TODO: use TxFeesKeeper
 		DisabledAuthzMsgs: []string{
 			sdk.MsgTypeURL(&evmtypes.MsgEthereumTx{}),
@@ -116,7 +116,7 @@ func NewAnteHandler(
 			eip712SigVerificationDecorator = noopAnteDecorator{}
 		}
 
-		var sigVerificationDecorator sdk.AnteDecorator = NewSigVerificationDecorator(ak, options.SignModeHandler)
+		var sigVerificationDecorator sdk.AnteDecorator = authante.NewSigVerificationDecorator(ak, options.SignModeHandler)
 		if noSignatureVerification {
 			sigVerificationDecorator = noopAnteDecorator{}
 		}
@@ -156,9 +156,7 @@ func NewAnteHandler(
 							authante.NewConsumeGasForTxSizeDecorator(ak),
 							authante.NewSetPubKeyDecorator(ak), // SetPubKeyDecorator must be called before all signature verification decorators
 							authante.NewValidateSigCountDecorator(ak),
-							txfeeskeeper.NewMempoolFeeDecorator(options.TxFeesKeeper), // does nothing if Mempool1559 is disabled, otherwise:
-							// checks tx gas price against current base fee calculated by txfees module during CheckTx
-							// and against txfees.Params.MinBaseFee in DeliverTx
+							txfeeskeeper.NewMempoolFeeDecorator(options.TxFeesKeeper, false), // skip dynamic fee checks on this route; still account tx gas usage
 
 							NewDeductFeeDecorator(ak, options.BankKeeper), // overidden for fee delegation, also checks gas price against validator's config min gas prices during CheckTx
 							authante.NewSigGasConsumeDecorator(ak, DefaultSigVerificationGasConsumer),
@@ -200,7 +198,7 @@ func NewAnteHandler(
 				authante.NewValidateBasicDecorator(),
 				txTimeoutHeightDecorator,
 				authante.NewValidateMemoDecorator(ak),
-				txfeeskeeper.NewMempoolFeeDecorator(options.TxFeesKeeper),
+				txfeeskeeper.NewMempoolFeeDecorator(options.TxFeesKeeper, false),
 				authante.NewConsumeGasForTxSizeDecorator(ak),
 				NewAuctionFeeDecorator(ak, options.BankKeeper, options.FeegrantKeeper, nil),
 				authante.NewSetPubKeyDecorator(ak), // SetPubKeyDecorator must be called before all signature verification decorators

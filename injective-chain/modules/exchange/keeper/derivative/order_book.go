@@ -652,7 +652,7 @@ func (b *limitOrderbook) addInvalidOrderToCancelsAndAdvanceToNextOrder(ctx sdk.C
 	// Check if this order already has fills
 	// This can happen when an order passes validation initially, receives fills during matching,
 	// but then fails validation on a subsequent Peek() due to changed position state.
-	var existingFill math.LegacyDec
+	existingFill := math.LegacyZeroDec()
 	switch b.currState {
 	case b.transientOrderbookFills:
 		idx := b.transientOrderIdx
@@ -732,6 +732,7 @@ func (b *limitOrderbook) advanceNewOrder(ctx sdk.Context) {
 
 		if err != nil {
 			b.addInvalidOrderToCancelsAndAdvanceToNextOrder(ctx, currOrder)
+			return
 		}
 	}
 

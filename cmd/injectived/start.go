@@ -202,6 +202,20 @@ func start(svrCtx *server.Context, clientCtx client.Context, appCreator types.Ap
 		return fmt.Errorf("failed to parse app config: %w", err)
 	}
 
+	if err := appCfg.EVM.Validate(); err != nil {
+		return fmt.Errorf("invalid evm config: %w", err)
+	}
+	if err := appCfg.JSONRPC.Validate(); err != nil {
+		return fmt.Errorf("invalid json-rpc config: %w", err)
+	}
+	if err := appCfg.JSONRPCDebug.Validate(); err != nil {
+		return fmt.Errorf("invalid json-rpc-debug config: %w", err)
+	}
+	if appCfg.JSONRPC.Enable && appCfg.JSONRPCDebug.Enable &&
+		appCfg.JSONRPC.EnableIndexer && appCfg.JSONRPCDebug.EnableIndexer {
+		return errors.New("cannot enable indexer on both json-rpc and json-rpc-debug servers simultaneously")
+	}
+
 	app, appCleanupFn, err := startApp(svrCtx, appCreator, opts)
 	if err != nil {
 		return err
@@ -340,6 +354,29 @@ func addStartNodeFlags(cmd *cobra.Command, opts server.StartCmdOptions) {
 	cmd.Flags().Bool(FlagJSONRPCEnableMetrics, false, "Define if JSON-RPC rpc metrics server should be enabled")
 	cmd.Flags().String(FlagJSONRPCMetricsAddress, config.DefaultJSONRPCMetricsAddress, "Set the address for the JSON-RPC metrics server")
 	cmd.Flags().Uint(FlagJSONRPCReturnDataLimit, config.DefaultReturnDataLimit, "Set the maximum number of bytes returned from `eth_call` or similar invocations")
+
+	cmd.Flags().Bool(FlagJSONRPCDebugEnable, false, "Define if the dedicated debug JSON-RPC server should be enabled")
+	cmd.Flags().StringSlice(FlagJSONRPCDebugAPI, []string{"debug"}, "Defines a list of JSON-RPC namespaces that should be enabled on the debug JSON-RPC server")
+	cmd.Flags().String(FlagJSONRPCDebugAddress, config.DebugJSONRPCAddress, "The debug JSON-RPC server address to listen on")
+	cmd.Flags().Uint64(FlagJSONRPCDebugGasCap, config.DebugGasCap, "Sets a cap on gas that can be used in eth_call/estimateGas on debug JSON-RPC (0=infinite)")
+	cmd.Flags().Float64(FlagJSONRPCDebugTxFeeCap, config.DebugTxFeeCap, "Sets a cap on transaction fee that can be sent via the debug JSON-RPC APIs (1 = default 1 photon)")
+	cmd.Flags().Int32(FlagJSONRPCDebugFilterCap, config.DebugFilterCap, "Sets the global cap for total number of filters that can be created on debug JSON-RPC")
+	cmd.Flags().Int32(FlagJSONRPCDebugFeeHistoryCap, config.DebugFeeHistoryCap, "Sets the global cap for fee history on debug JSON-RPC")
+	cmd.Flags().Duration(FlagJSONRPCDebugEVMTimeout, config.DebugEVMTimeout, "Sets a timeout used for eth_call on debug JSON-RPC (0=infinite)")
+	cmd.Flags().Duration(FlagJSONRPCDebugHTTPTimeout, config.DebugHTTPTimeout, "Sets a read/write timeout for debug JSON-RPC HTTP server (0=infinite)")
+	cmd.Flags().Duration(FlagJSONRPCDebugHTTPIdleTimeout, config.DebugHTTPIdleTimeout, "Sets an idle timeout for debug JSON-RPC HTTP server (0=infinite)")
+	cmd.Flags().Int32(FlagJSONRPCDebugLogsCap, config.DebugLogsCap, "Sets the max number of results returned from a single `eth_getLogs` query on debug JSON-RPC")
+	cmd.Flags().Int32(FlagJSONRPCDebugBlockRangeCap, config.DebugBlockRangeCap, "Sets the max block range allowed for `eth_getLogs` query on debug JSON-RPC")
+	cmd.Flags().Uint(
+		FlagJSONRPCDebugMaxOpenConnections,
+		config.DebugMaxOpenConnections,
+		"Sets the maximum number of simultaneous connections for the debug JSON-RPC server listener",
+	)
+	cmd.Flags().Uint(
+		FlagJSONRPCDebugReturnDataLimit,
+		config.DebugReturnDataLimit,
+		"Set the maximum number of bytes returned from `eth_call` or similar invocations on debug JSON-RPC",
+	)
 
 	cmd.Flags().String(FlagEVMTracer, config.DefaultEVMTracer, "The EVM tracer type to collect execution traces from the EVM transaction execution (json|struct|access_list|markdown)")
 	cmd.Flags().Uint64(FlagEVMMaxTxGasWanted, config.DefaultMaxTxGasWanted, "The gas wanted for each eth tx returned in ante handler in check tx mode")
@@ -759,7 +796,20 @@ func startInProcess(
 			appCfg.JSONRPC,
 			appCfg.API.EnableUnsafeCORS,
 			g,
-			app,
+			false,
+		); err != nil {
+			return err
+		}
+	}
+
+	if appCfg.JSONRPCDebug.Enable {
+		if _, _, _, err := startJSONRPCServer(
+			svrCtx,
+			clientCtx,
+			appCfg.JSONRPCDebug,
+			appCfg.API.EnableUnsafeCORS,
+			g,
+			true,
 		); err != nil {
 			return err
 		}
@@ -816,13 +866,14 @@ func registerTxServices(
 
 	return clientCtx
 }
+
 func startJSONRPCServer(
 	svrCtx *server.Context,
 	clientCtx client.Context,
 	jsonRPCConfig config.JSONRPCConfig,
 	enableUsafeCors bool,
 	g *errgroup.Group,
-	_ types.Application,
+	isDebug bool,
 ) (ctx client.Context, httpSrv *http.Server, httpSrvDone chan struct{}, err error) {
 	ctx = clientCtx
 
@@ -836,11 +887,11 @@ func startJSONRPCServer(
 	ctx = ctx.WithChainID(chainId).WithHomeDir(home)
 
 	var idxer chaintypes.EVMTxIndexer
-	if jsonRPCConfig.EnableIndexer {
+	if !isDebug && jsonRPCConfig.EnableIndexer {
 		var idxDB dbm.DB
 		idxDB, err = openIndexerDB(home, server.GetAppDBBackend(svrCtx.Viper))
 		if err != nil {
-			svrCtx.Logger.Error("failed to open evm indexer DB", "error", err.Error())
+			svrCtx.Logger.Error("failed to open EVM indexer DB", "error", err.Error())
 			return
 		}
 
@@ -852,13 +903,13 @@ func startJSONRPCServer(
 		g.Go(func() error {
 			defer func() {
 				if e := recover(); e != nil {
-					idxLogger.Error("panic in indexer service", "error", e)
+					idxLogger.Error("panic in EVM indexer service", "error", e)
 				}
 			}()
 
 			defer func() {
 				if err := idxDB.Close(); err != nil {
-					idxLogger.Error("failed to close indexer DB", "error", err.Error())
+					idxLogger.Error("failed to close EVM indexer DB", "error", err.Error())
 				}
 			}()
 
@@ -869,7 +920,7 @@ func startJSONRPCServer(
 	g.Go(func() error {
 		defer func() {
 			if e := recover(); e != nil {
-				svrCtx.Logger.Error("panic in JSONRPC service", "error", e)
+				svrCtx.Logger.Error("panic in EVM JSON-RPC service", "error", e, "debug", isDebug)
 			}
 		}()
 
@@ -880,6 +931,7 @@ func startJSONRPCServer(
 			jsonRPCConfig,
 			enableUsafeCors,
 			idxer,
+			isDebug,
 		)
 
 		return err

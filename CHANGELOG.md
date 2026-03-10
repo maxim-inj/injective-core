@@ -36,6 +36,23 @@ Ref: https://keepachangelog.com/en/1.1.0/
 
 ## [Unreleased]
 
+## [v1.18.2](https://github.com/InjectiveFoundation/injective-core/releases/tag/v1.18.2) - 2026-03-09
+
+### Features
+
+- (evm)  Add missing JSON-RPC methods (eth_getBlockReceipts) and tweak limits for tracing
+
+### Improvements
+
+- (exchange)  move EnforcedRestrictedContracts params to permissions module and introduce Pause, Blacklist, UnBlacklist event listeners.
+- (permissions)  Migration for USDC config for EVM hook.
+
+### Bug Fixes
+
+- (exchange)  Fixed Open Interest delta calculation when executing a position offset
+- (evm)  Evm txns indexing in RPC shifted when block contains reverted txns
+- (ledger)  Reverted Ledger multisig feature to restore Cosmos multisig verification (#2351)
+
 ## [v1.18.0](https://github.com/InjectiveFoundation/injective-core/releases/tag/v1.18.0) - 2026-02-19
 
 ### Features

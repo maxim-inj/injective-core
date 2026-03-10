@@ -233,7 +233,7 @@ gas-cap = {{ .JSONRPC.GasCap }}
 # EVMTimeout is the global timeout for eth_call. Default: 5s.
 evm-timeout = "{{ .JSONRPC.EVMTimeout }}"
 
-# TxFeeCap is the global tx-fee cap for send transaction. Default: 1eth.
+# TxFeeCap is the global tx-fee cap for send transaction. Default: 10eth.
 txfee-cap = {{ .JSONRPC.TxFeeCap }}
 
 # FilterCap sets the global cap for total number of filters that can be created
@@ -279,7 +279,57 @@ metrics-address = "{{ .JSONRPC.MetricsAddress }}"
 return-data-limit = {{ .JSONRPC.ReturnDataLimit }}
 
 ###############################################################################
-###                  Injective Websocket Configuration                       ###
+###                     Debug JSON RPC Configuration                        ###
+###############################################################################
+
+[json-rpc-debug]
+
+# Enable defines if the dedicated debug JSON-RPC server should be enabled.
+enable = {{ .JSONRPCDebug.Enable }}
+
+# Address defines the debug JSON-RPC HTTP server address to bind to.
+address = "{{ .JSONRPCDebug.Address }}"
+
+# API defines a list of JSON-RPC namespaces that should be enabled
+# Example: "eth,debug"
+api = "{{range $index, $elmt := .JSONRPCDebug.API}}{{if $index}},{{$elmt}}{{else}}{{$elmt}}{{end}}{{end}}"
+
+# GasCap sets a cap on gas that can be used in eth_call/estimateGas (0=infinite).
+gas-cap = {{ .JSONRPCDebug.GasCap }}
+
+# EVMTimeout is the global timeout for eth_call. Default: 5s.
+evm-timeout = "{{ .JSONRPCDebug.EVMTimeout }}"
+
+# TxFeeCap is the global tx-fee cap for send transaction. Default: 10eth.
+txfee-cap = {{ .JSONRPCDebug.TxFeeCap }}
+
+# FilterCap sets the global cap for total number of filters that can be created
+filter-cap = {{ .JSONRPCDebug.FilterCap }}
+
+# FeeHistoryCap sets the global cap for total number of blocks that can be fetched
+feehistory-cap = {{ .JSONRPCDebug.FeeHistoryCap }}
+
+# LogsCap defines the max number of results can be returned from single 'eth_getLogs' query.
+logs-cap = {{ .JSONRPCDebug.LogsCap }}
+
+# BlockRangeCap defines the max block range allowed for 'eth_getLogs' query.
+block-range-cap = {{ .JSONRPCDebug.BlockRangeCap }}
+
+# HTTPTimeout is the read/write timeout of http json-rpc server.
+http-timeout = "{{ .JSONRPCDebug.HTTPTimeout }}"
+
+# HTTPIdleTimeout is the idle timeout of http json-rpc server.
+http-idle-timeout = "{{ .JSONRPCDebug.HTTPIdleTimeout }}"
+
+# MaxOpenConnections sets the maximum number of simultaneous connections
+# for the server listener.
+max-open-connections = {{ .JSONRPCDebug.MaxOpenConnections }}
+
+# Maximum number of bytes returned from eth_call or similar invocations.
+return-data-limit = {{ .JSONRPCDebug.ReturnDataLimit }}
+
+###############################################################################
+###                  Injective Websocket Configuration                      ###
 ###############################################################################
 
 [injective-websocket]

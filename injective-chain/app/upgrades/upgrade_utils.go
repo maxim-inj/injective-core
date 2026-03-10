@@ -25,6 +25,7 @@ import (
 	oraclekeeper "github.com/InjectiveLabs/injective-core/injective-chain/modules/oracle/keeper"
 	peggykeeper "github.com/InjectiveLabs/injective-core/injective-chain/modules/peggy/keeper"
 	txfeeskeeper "github.com/InjectiveLabs/injective-core/injective-chain/modules/txfees/keeper"
+	permissionskeeper "github.com/InjectiveLabs/injective-core/injective-chain/modules/permissions/keeper"
 )
 
 type UpgradeHandlerStep struct {
@@ -137,6 +138,7 @@ type InjectiveApplication interface {
 	GetDowntimeDetectorKeeper() *downtimedetector.Keeper
 	GetICAHostKeeper() icahostkeeper.Keeper
 	GetOracleKeeper() *oraclekeeper.Keeper
+	GetPermissionsKeeper() *permissionskeeper.Keeper
 }
 
 func LogUpgradeProgress(logger log.Logger, startTime, lastUpdatedTime time.Time, currentUpdateNumber, totalUpdates int) {

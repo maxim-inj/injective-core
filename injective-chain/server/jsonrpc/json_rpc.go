@@ -2,7 +2,6 @@ package jsonrpc
 
 import (
 	"context"
-	sdklog "cosmossdk.io/log"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -10,11 +9,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/gorilla/mux"
-	"github.com/rs/cors"
-	"golang.org/x/net/netutil"
-	"golang.org/x/sync/errgroup"
-
+	sdklog "cosmossdk.io/log"
 	"github.com/InjectiveLabs/injective-core/injective-chain/modules/evm/rpc"
 	"github.com/InjectiveLabs/injective-core/injective-chain/modules/evm/rpc/stream"
 	rpcclient "github.com/cometbft/cometbft/rpc/client"
@@ -22,6 +17,10 @@ import (
 	"github.com/cosmos/cosmos-sdk/server"
 	ethlog "github.com/ethereum/go-ethereum/log"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
+	"github.com/gorilla/mux"
+	"github.com/rs/cors"
+	"golang.org/x/net/netutil"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/InjectiveLabs/injective-core/cmd/injectived/config"
 	chaintypes "github.com/InjectiveLabs/injective-core/injective-chain/types"
@@ -35,29 +34,36 @@ func Start(
 	jsonRPCConfig config.JSONRPCConfig,
 	enableUnsafeCors bool,
 	indexer chaintypes.EVMTxIndexer,
+	isDebug bool,
 ) (*http.Server, chan struct{}, error) {
-	logger := srvCtx.Logger.With("module", "jsonrpc")
-
-	evtClient, ok := clientCtx.Client.(rpcclient.EventsClient)
-	if !ok {
-		return nil, nil, fmt.Errorf("client %T does not implement EventsClient", clientCtx.Client)
+	var moduleName = "jsonrpc"
+	if isDebug {
+		moduleName = "jsonrpc_debug"
 	}
+	logger := srvCtx.Logger.With("module", moduleName)
 
-	var rpcStreamOpenAttempts = 6
 	var rpcStream *stream.RPCStream
-	var err error
-	for i := 0; i < rpcStreamOpenAttempts; i++ {
-		rpcStream, err = stream.NewRPCStreams(evtClient, logger, clientCtx.TxConfig.TxDecoder())
-		if err == nil {
-			break
+	if !isDebug {
+		evtClient, ok := clientCtx.Client.(rpcclient.EventsClient)
+		if !ok {
+			return nil, nil, fmt.Errorf("client %T does not implement EventsClient", clientCtx.Client)
 		}
 
-		time.Sleep(time.Second)
-	}
+		var rpcStreamOpenAttempts = 6
+		var err error
+		for i := 0; i < rpcStreamOpenAttempts; i++ {
+			rpcStream, err = stream.NewRPCStreams(evtClient, logger, clientCtx.TxConfig.TxDecoder())
+			if err == nil {
+				break
+			}
 
-	if err != nil {
-		err = fmt.Errorf("failed to create rpc streams after %d attempts: %w", rpcStreamOpenAttempts, err)
-		return nil, nil, err
+			time.Sleep(time.Second)
+		}
+
+		if err != nil {
+			err = fmt.Errorf("failed to create rpc streams after %d attempts: %w", rpcStreamOpenAttempts, err)
+			return nil, nil, err
+		}
 	}
 
 	handler := NewWrappedSdkLogger(logger)
@@ -69,9 +75,8 @@ func Start(
 		srvCtx,
 		clientCtx,
 		rpcStream,
-		jsonRPCConfig.AllowUnprotectedTxs,
+		jsonRPCConfig,
 		indexer,
-		jsonRPCConfig.API,
 	)
 
 	for _, api := range apis {
@@ -109,20 +114,28 @@ func Start(
 	}
 
 	g.Go(func() error {
-		srvCtx.Logger.Info("Starting JSON-RPC server", "address", jsonRPCConfig.Address)
+		if isDebug {
+			srvCtx.Logger.Info("Starting Debug JSON-RPC server", "address", jsonRPCConfig.Address)
+		} else {
+			srvCtx.Logger.Info("Starting JSON-RPC server", "address", jsonRPCConfig.Address)
+		}
+
 		if err := httpSrv.Serve(ln); err != nil {
 			if errors.Is(err, http.ErrServerClosed) {
 				close(httpSrvDone)
 			}
 
-			srvCtx.Logger.Error("failed to start JSON-RPC server", "error", err.Error())
+			srvCtx.Logger.Error("failed to start JSON-RPC server", "error", err.Error(), "debug", isDebug)
 			return err
 		}
 		return nil
 	})
 
-	wsSrv := NewWebsocketsServer(clientCtx, srvCtx.Logger, rpcStream, jsonRPCConfig)
-	wsSrv.Start()
+	if !isDebug && jsonRPCConfig.WsAddress != "" {
+		wsSrv := NewWebsocketsServer(clientCtx, srvCtx.Logger, rpcStream, jsonRPCConfig)
+		wsSrv.Start()
+	}
+
 	return httpSrv, httpSrvDone, nil
 }
 

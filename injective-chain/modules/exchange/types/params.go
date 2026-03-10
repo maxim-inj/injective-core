@@ -37,6 +37,12 @@ const (
 
 	MaxTickerLength int = 40
 
+	MaxOracleSymbolLength int = 256
+
+	MaxOracleProviderLength int = 256
+
+	MaxMarketLaunchDenomLength int = 256
+
 	// MaxHistoricalTradeRecordAge is the maximum age of trade records to track.
 	MaxHistoricalTradeRecordAge = 60 * 5
 

@@ -21,14 +21,15 @@ import (
 type DerivativeKeeper struct {
 	*base.BaseKeeper
 
-	subaccount   *subaccount.SubaccountKeeper
-	insurance    types.InsuranceKeeper
-	oracle       types.OracleKeeper
-	feeDiscounts *feediscounts.FeeDiscountsKeeper
-	trading      *rewards.TradingKeeper
-	bank         bankkeeper.Keeper
-	wasm         types.WasmViewKeeper // set after New
-	svcTags      metrics.Tags
+	subaccount        *subaccount.SubaccountKeeper
+	insurance         types.InsuranceKeeper
+	oracle            types.OracleKeeper
+	feeDiscounts      *feediscounts.FeeDiscountsKeeper
+	trading           *rewards.TradingKeeper
+	bank              bankkeeper.Keeper
+	wasm              types.WasmViewKeeper    // set after New
+	permissionsKeeper types.PermissionsKeeper // set after New
+	svcTags           metrics.Tags
 }
 
 func New(
@@ -39,15 +40,17 @@ func New(
 	bk bankkeeper.Keeper,
 	i types.InsuranceKeeper,
 	tw *rewards.TradingKeeper,
+	pk types.PermissionsKeeper,
 ) *DerivativeKeeper {
 	return &DerivativeKeeper{
-		BaseKeeper:   b,
-		subaccount:   sa,
-		oracle:       o,
-		feeDiscounts: fd,
-		bank:         bk,
-		insurance:    i,
-		trading:      tw,
+		BaseKeeper:        b,
+		subaccount:        sa,
+		oracle:            o,
+		feeDiscounts:      fd,
+		bank:              bk,
+		insurance:         i,
+		trading:           tw,
+		permissionsKeeper: pk,
 		svcTags: map[string]string{
 			"svc": "derivative_k",
 		},
@@ -57,18 +60,28 @@ func New(
 // consequence of app init's chicken-or-egg problem
 func (k DerivativeKeeper) SetWasm(ws types.WasmViewKeeper) *DerivativeKeeper {
 	return &DerivativeKeeper{
-		BaseKeeper:   k.BaseKeeper,
-		subaccount:   k.subaccount,
-		oracle:       k.oracle,
-		feeDiscounts: k.feeDiscounts,
-		bank:         k.bank,
-		insurance:    k.insurance,
-		trading:      k.trading,
-		wasm:         ws,
-		svcTags:      k.svcTags,
+		BaseKeeper:        k.BaseKeeper,
+		subaccount:        k.subaccount,
+		oracle:            k.oracle,
+		feeDiscounts:      k.feeDiscounts,
+		bank:              k.bank,
+		insurance:         k.insurance,
+		trading:           k.trading,
+		wasm:              ws,
+		permissionsKeeper: k.permissionsKeeper,
+		svcTags:           k.svcTags,
 	}
 }
 
+func (k *DerivativeKeeper) SetPermissionsKeeper(pk types.PermissionsKeeper) {
+	k.permissionsKeeper = pk
+}
+
+// GetFeeDiscountConfigForMarket returns the fee discount configuration for a market.
+// This is used by the FBA package to process derivative matching results.
+func (k DerivativeKeeper) GetFeeDiscountConfigForMarket(ctx sdk.Context, marketID common.Hash, stakingInfo *v2.FeeDiscountStakingInfo) *v2.FeeDiscountConfig {
+	return k.feeDiscounts.GetFeeDiscountConfigForMarket(ctx, marketID, stakingInfo)
+}
 func (k DerivativeKeeper) TokenDenomDecimals(ctx sdk.Context, tokenDenom string) (decimals uint32, err error) {
 	tokenMetadata, found := k.bank.GetDenomMetaData(ctx, tokenDenom)
 	if !found {

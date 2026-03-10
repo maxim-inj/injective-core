@@ -37,6 +37,7 @@ type Config struct {
 	// Added for EVM
 
 	JSONRPC            JSONRPCConfig   `mapstructure:"json-rpc"`
+	JSONRPCDebug       JSONRPCConfig   `mapstructure:"json-rpc-debug"`
 	EVM                EVMConfig       `mapstructure:"evm"`
 	InjectiveWebsocket WebsocketConfig `mapstructure:"injective-websocket"`
 }
@@ -68,6 +69,7 @@ func DefaultConfig() *Config {
 		Mempool:   defaultConfig.Mempool,
 
 		JSONRPC:            *DefaultJSONRPCConfig(),
+		JSONRPCDebug:       *DefaultJSONRPCDebugConfig(),
 		EVM:                *DefaultEVMConfig(),
 		InjectiveWebsocket: *DefaultWebsocketConfig(),
 	}
@@ -128,6 +130,23 @@ func GetConfig(v *viper.Viper) (Config, error) {
 		MetricsAddress:      v.GetString("json-rpc.metrics-address"),
 		ReturnDataLimit:     v.GetInt64("json-rpc.return-data-limit"),
 		AllowUnprotectedTxs: v.GetBool("json-rpc.allow-unprotected-txs"),
+	}
+
+	injCfg.JSONRPCDebug = JSONRPCConfig{
+		Enable:             v.GetBool("json-rpc-debug.enable"),
+		API:                v.GetStringSlice("json-rpc-debug.api"),
+		Address:            v.GetString("json-rpc-debug.address"),
+		GasCap:             v.GetUint64("json-rpc-debug.gas-cap"),
+		FilterCap:          v.GetInt32("json-rpc-debug.filter-cap"),
+		FeeHistoryCap:      v.GetInt32("json-rpc-debug.feehistory-cap"),
+		TxFeeCap:           v.GetFloat64("json-rpc-debug.txfee-cap"),
+		EVMTimeout:         v.GetDuration("json-rpc-debug.evm-timeout"),
+		LogsCap:            v.GetInt32("json-rpc-debug.logs-cap"),
+		BlockRangeCap:      v.GetInt32("json-rpc-debug.block-range-cap"),
+		HTTPTimeout:        v.GetDuration("json-rpc-debug.http-timeout"),
+		HTTPIdleTimeout:    v.GetDuration("json-rpc-debug.http-idle-timeout"),
+		MaxOpenConnections: v.GetInt("json-rpc-debug.max-open-connections"),
+		ReturnDataLimit:    v.GetInt64("json-rpc-debug.return-data-limit"),
 	}
 
 	injCfg.InjectiveWebsocket = WebsocketConfig{
@@ -198,6 +217,7 @@ func TestingAppConfig(denom string) (string, interface{}) {
 
 		EVM:                *DefaultEVMConfig(),
 		JSONRPC:            *DefaultJSONRPCConfig(),
+		JSONRPCDebug:       *DefaultJSONRPCDebugConfig(),
 		InjectiveWebsocket: *DefaultWebsocketConfig(),
 	}
 

@@ -80,15 +80,15 @@ func NewKeeper(
 	dk distrkeeper.Keeper,
 	sk types.StakingKeeper,
 	downtimeK types.DowntimeKeeper,
-	permissionsKeeper types.PermissionsKeeper,
+	pk types.PermissionsKeeper,
 	authority string,
 ) *Keeper {
 	var (
 		b            = base.NewBaseKeeper(cdc, storeKey, tStoreKey)
-		subacc       = subaccount.New(b, ak, bk, permissionsKeeper)
+		subacc       = subaccount.New(b, ak, bk, pk)
 		feeDiscounts = feediscounts.New(b, sk)
 		trade        = rewards.New(b, bk, feeDiscounts, dk)
-		derv         = derivative.New(b, subacc, ok, feeDiscounts, bk, ik, trade)
+		derv         = derivative.New(b, subacc, ok, feeDiscounts, bk, ik, trade, pk)
 	)
 
 	return &Keeper{
@@ -101,7 +101,7 @@ func NewKeeper(
 		TradingKeeper:       trade,
 
 		DowntimeKeeper:     downtimeK,
-		permissionsKeeper:  permissionsKeeper,
+		permissionsKeeper:  pk,
 		AccountKeeper:      ak,
 		DistributionKeeper: dk,
 		OracleKeeper:       ok,
@@ -159,6 +159,7 @@ func (k *Keeper) SetWasmKeepers(
 func (k *Keeper) SetPermissionsKeeper(pk types.PermissionsKeeper) {
 	k.permissionsKeeper = pk
 	k.SubaccountKeeper.SetPermissionsKeeper(pk)
+	k.DerivativeKeeper.SetPermissionsKeeper(pk)
 }
 
 // CreateModuleAccount creates a module account with minter and burning capabilities

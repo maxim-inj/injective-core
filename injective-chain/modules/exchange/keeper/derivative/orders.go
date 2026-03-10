@@ -2825,3 +2825,41 @@ func processOrderMaskFlags(orderMask int32) (
 
 	return isBuy, shouldCheckIsRegular, shouldCheckIsConditional, shouldCheckIsMarketOrder, shouldCheckIsLimitOrder
 }
+
+// CancelAllDerivativeOrdersForAddress cancels all derivative orders across all markets with the given quote denom
+// for all subaccounts belonging to the specified address.
+func (k DerivativeKeeper) CancelAllDerivativeOrdersForAddress(ctx sdk.Context, quoteDenom string, user common.Address) {
+	derivativeMarkets := k.GetAllActiveDerivativeAndBinaryOptionsMarkets(ctx)
+
+	for _, market := range derivativeMarkets {
+		if market.GetQuoteDenom() != quoteDenom {
+			continue
+		}
+
+		if !market.StatusSupportsOrderCancellations() {
+			continue
+		}
+
+		marketID := market.MarketID()
+
+		// collect unique subaccount IDs belonging to the user that have orders in this market
+		// uses a ranged iterator scoped to the address prefix: O(U) not O(S)
+		subaccountIDs := k.GetSubaccountIDsWithOrderbookMetadataForMarketByAccountAddress(ctx, marketID, user)
+
+		for _, subaccountID := range subaccountIDs {
+			k.CancelAllRestingDerivativeLimitOrdersForSubaccount(ctx, market, subaccountID, true, true)
+			k.CancelAllTransientDerivativeLimitOrdersBySubaccountID(ctx, market, subaccountID)
+			k.CancelAllConditionalDerivativeOrdersBySubaccountIDAndMarket(ctx, market, subaccountID)
+
+			if derivativeMarket, ok := market.(*v2.DerivativeMarket); ok {
+				k.CancelAllDerivativeMarketOrdersBySubaccountID(ctx, derivativeMarket, subaccountID, marketID)
+			}
+
+			k.Logger(ctx).Warn("Cancelled all derivative orders for blacklisted user",
+				"market_id", marketID,
+				"subaccount_id", subaccountID.Hex(),
+				"user", user.Hex(),
+			)
+		}
+	}
+}

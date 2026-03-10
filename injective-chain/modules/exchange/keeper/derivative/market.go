@@ -10,9 +10,7 @@ import (
 	"github.com/InjectiveLabs/metrics"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/crypto"
 
-	erc20types "github.com/InjectiveLabs/injective-core/injective-chain/modules/erc20/types"
 	"github.com/InjectiveLabs/injective-core/injective-chain/modules/exchange/keeper/events"
 	"github.com/InjectiveLabs/injective-core/injective-chain/modules/exchange/keeper/marketfinder"
 	"github.com/InjectiveLabs/injective-core/injective-chain/modules/exchange/types"
@@ -21,8 +19,6 @@ import (
 	insurancetypes "github.com/InjectiveLabs/injective-core/injective-chain/modules/insurance/types"
 	oracletypes "github.com/InjectiveLabs/injective-core/injective-chain/modules/oracle/types"
 	chaintypes "github.com/InjectiveLabs/injective-core/injective-chain/types"
-	"github.com/ethereum/go-ethereum/core"
-	ethtypes "github.com/ethereum/go-ethereum/core/types"
 )
 
 func (k DerivativeKeeper) GetDerivativeMarketInfo(ctx sdk.Context, marketID common.Hash, isEnabled bool) *v2.DerivativeMarketInfo {
@@ -1803,76 +1799,4 @@ func (k *DerivativeKeeper) HandleForceSettleMarketByAdmin(ctx sdk.Context, marke
 	return nil
 }
 
-// shouldPauseMarkets is pausing USDC-denominated markets when USDC token is paused (or any other token with enforced restrictions)
-func (k DerivativeKeeper) shouldPauseMarkets(ctx sdk.Context, _ *core.Message, receipt *ethtypes.Receipt) error {
-	params := k.GetParams(ctx)
-
-	for _, contract := range params.EnforcedRestrictionsContracts {
-		contractAddr := common.HexToAddress(contract.ContractAddress)
-
-		// If pause event signature is empty, default to "Pause()"
-		pauseEventSig := contract.PauseEventSignature
-		if pauseEventSig == "" {
-			pauseEventSig = "Pause()"
-		}
-
-		// Calculate event ID from signature using keccak256
-		pauseEventID := crypto.Keccak256Hash([]byte(pauseEventSig))
-
-		for _, log := range receipt.Logs {
-			if len(log.Topics) != 1 {
-				continue
-			}
-			if log.Address.Cmp(contractAddr) != 0 {
-				continue
-			}
-
-			eventID := log.Topics[0]
-
-			if eventID.Cmp(pauseEventID) != 0 {
-				continue
-			}
-
-			k.Logger(ctx).Warn("enforced restrictions token pause is detected, will pause all markets denominated in this denom now...", "contract_address", contractAddr.String())
-
-			// token was paused, now pause the markets
-			tokenBankDenom := erc20types.DenomPrefix + contractAddr.Hex()
-			derivativeMarkets := k.GetAllActiveDerivativeAndBinaryOptionsMarkets(ctx)
-
-			for _, market := range derivativeMarkets {
-				if market.GetQuoteDenom() != tokenBankDenom {
-					continue
-				}
-
-				markPriceAtPausing, err := k.GetDerivativeOrBinaryOptionsMarkPrice(ctx, market)
-				if err != nil {
-					k.Logger(ctx).Error("failed to get market price when pausing market due to quote denom being paused", "market_id", market.MarketID(), "error", err)
-				}
-
-				err = k.ForcePauseGenericMarket(ctx, market, markPriceAtPausing)
-				if err != nil {
-					k.Logger(ctx).Error("failed to pause market", "market_id", market.MarketID(), "error", err)
-				}
-
-				k.Logger(ctx).Warn("Pausing market due to quote denom being paused", "market_id", market.MarketID())
-			}
-
-			// pause event for contract has been handled, no need to iterate through more logs
-			break
-		}
-	}
-
-	return nil
-}
-
-// PostTxProcessing implements EVM Hook interface
-//
-// For now we use hooks to pause USDC-denominated markets when USDC transfers are paused
-//
-//nolint:revive // redundant if case for future
-func (k DerivativeKeeper) PostTxProcessing(ctx sdk.Context, msg *core.Message, receipt *ethtypes.Receipt) error {
-	if err := k.shouldPauseMarkets(ctx, msg, receipt); err != nil {
-		return err
-	}
-	return nil
-}
+// (No EVM-hook-based market pause logic here; permission hooks are now handled in permissions module.)

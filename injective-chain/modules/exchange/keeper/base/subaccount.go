@@ -34,6 +34,51 @@ func (k *BaseKeeper) IterateSubaccountOrderbookMetadataForMarket(
 	})
 }
 
+// GetSubaccountIDsWithOrderbookMetadataForMarketByAccountAddress returns unique subaccount IDs that
+// have orderbook metadata in the given market for the given account address.
+// It uses a ranged iterator scoped to the address prefix, so it only visits O(U) entries
+// where U is the number of subaccounts for that address (typically 1-2), not all subaccounts in the market.
+func (k *BaseKeeper) GetSubaccountIDsWithOrderbookMetadataForMarketByAccountAddress(
+	ctx sdk.Context,
+	marketID common.Hash,
+	accountAddress common.Address,
+) []common.Hash {
+	ctx, doneFn := metrics.ReportFuncCallAndTimingSdkCtx(ctx, k.svcTags)
+	defer doneFn()
+
+	store := k.getStore(ctx)
+	prefixKey := types.SubaccountOrderbookMetadataPrefix
+	prefixKey = append(prefixKey, marketID.Bytes()...)
+	subaccountStore := prefix.NewStore(store, prefixKey)
+
+	// Within this store, keys are: subaccountID (32B) + isBuy (1B)
+	// subaccountID = address (20B) + nonce (12B)
+	// Range from address+0x00..00 to address+1+0x00..00 to only visit entries for this address.
+	start := make([]byte, common.HashLength)
+	copy(start, accountAddress.Bytes())
+
+	end := incrementBytes(accountAddress.Bytes())
+	var endKey []byte
+	if end != nil {
+		endKey = make([]byte, common.HashLength)
+		copy(endKey, end)
+	}
+
+	var result []common.Hash
+	seen := make(map[common.Hash]struct{})
+
+	iterateSafe(subaccountStore.Iterator(start, endKey), func(key, _ []byte) bool {
+		subaccountID := common.BytesToHash(key[:common.HashLength])
+		if _, ok := seen[subaccountID]; !ok {
+			seen[subaccountID] = struct{}{}
+			result = append(result, subaccountID)
+		}
+		return false
+	})
+
+	return result
+}
+
 func (k *BaseKeeper) IterateSubaccountOrders(
 	ctx sdk.Context,
 	process func(marketID, subaccountID common.Hash, isBuy bool, order *v2.SubaccountOrder) (stop bool),

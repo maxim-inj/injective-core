@@ -617,7 +617,7 @@ func initInjectiveApp(
 
 		memKeys = storetypes.NewMemoryStoreKeys(capabilitytypes.MemStoreKey)
 
-		okeys = storetypes.NewObjectStoreKeys(banktypes.ObjectStoreKey, evmtypes.ObjectStoreKey)
+		okeys = storetypes.NewObjectStoreKeys(banktypes.ObjectStoreKey, evmtypes.ObjectStoreKey, permissionsmodule.ObjStoreKey)
 	)
 
 	bApp := baseapp.NewBaseApp(
@@ -786,6 +786,10 @@ func (app *InjectiveApp) GetICAHostKeeper() icahostkeeper.Keeper {
 
 func (app *InjectiveApp) GetOracleKeeper() *oraclekeeper.Keeper {
 	return &app.OracleKeeper
+}
+
+func (app *InjectiveApp) GetPermissionsKeeper() *permissionskeeper.Keeper {
+	return &app.PermissionsKeeper
 }
 
 func (app *InjectiveApp) GetTxConfig() client.TxConfig { return app.txConfig }
@@ -1291,9 +1295,6 @@ func (app *InjectiveApp) initKeepers(authority string, appOpts servertypes.AppOp
 		authority,
 	)
 
-	evmHooks := evmtypes.NewEVMHooks(app.ExchangeKeeper)
-	app.EvmKeeper.SetHook(evmHooks)
-
 	app.InsuranceKeeper.SetExchangeKeeper(app.ExchangeKeeper)
 
 	app.PeggyKeeper = peggyKeeper.NewKeeper(
@@ -1429,12 +1430,16 @@ func (app *InjectiveApp) initKeepers(authority string, appOpts servertypes.AppOp
 		app.TokenFactoryKeeper,
 		app.WasmKeeper,
 		app.EvmKeeper,
+		app.okeys[permissionsmodule.ObjStoreKey],
 		authtypes.NewModuleAddress(tokenfactorytypes.ModuleName).String(),
 		GetModuleAccAddresses(),
 		authority,
 	)
-	app.TokenFactoryKeeper.SetPermissionsKeeper(app.PermissionsKeeper)
-	app.ExchangeKeeper.SetPermissionsKeeper(app.PermissionsKeeper)
+	app.TokenFactoryKeeper.SetPermissionsKeeper(&app.PermissionsKeeper)
+	app.ExchangeKeeper.SetPermissionsKeeper(&app.PermissionsKeeper)
+	app.EvmKeeper.SetHook(evmtypes.NewEVMHooks(&app.PermissionsKeeper))
+	app.PermissionsKeeper.AddEnforcedRestrictionsEVMContractPauseListener(app.ExchangeKeeper)
+	app.PermissionsKeeper.AddEnforcedRestrictionsEVMContractBlacklistListener(app.ExchangeKeeper)
 
 	app.ERC20Keeper = erc20keeper.NewKeeper(
 		app.keys[erc20module.StoreKey],

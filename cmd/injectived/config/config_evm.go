@@ -93,8 +93,7 @@ const (
 
 	DefaultEVMTimeout = 5 * time.Second
 
-	// default 1.0 eth
-	DefaultTxFeeCap float64 = 1.0
+	DefaultTxFeeCap float64 = 10.0
 
 	DefaultHTTPTimeout = 30 * time.Second
 
@@ -110,6 +109,42 @@ const (
 	DefaultReturnDataLimit = 512000
 
 	DefaultEnableGRPCTracing = false
+)
+
+const (
+	DebugJSONRPCAddress = "127.0.0.1:8547"
+
+	DebugEVMTracer = ""
+
+	DebugFixRevertGasRefundHeight = 0
+
+	DebugMaxTxGasWanted = 0
+
+	DebugGasCap uint64 = 250000000
+
+	DebugFilterCap int32 = 2000
+
+	DebugFeeHistoryCap int32 = 1000
+
+	DebugLogsCap int32 = 100000
+
+	DebugBlockRangeCap int32 = 50000
+
+	DebugEVMTimeout = 20 * time.Second
+
+	DebugTxFeeCap float64 = 10.0
+
+	DebugHTTPTimeout = 30 * time.Second
+
+	DebugHTTPIdleTimeout = 120 * time.Second
+
+	DebugAllowUnprotectedTxs = false
+
+	DebugMaxOpenConnections = 0
+
+	DebugReturnDataLimit = 10 * 1024 * 1024
+
+	DebugEnableGRPCTracing = true
 )
 
 var (
@@ -194,6 +229,29 @@ func DefaultJSONRPCConfig() *JSONRPCConfig {
 		Metrics:             false,
 		MetricsAddress:      DefaultJSONRPCMetricsAddress,
 		ReturnDataLimit:     DefaultReturnDataLimit,
+	}
+}
+
+// DefaultJSONRPCDebugConfig returns a debug-focused JSON-RPC config.
+func DefaultJSONRPCDebugConfig() *JSONRPCConfig {
+	return &JSONRPCConfig{
+		Enable: false,
+		API: []string{
+			"eth",
+			"debug",
+		},
+		Address:            DebugJSONRPCAddress,
+		GasCap:             DebugGasCap,
+		EVMTimeout:         DebugEVMTimeout,
+		TxFeeCap:           DebugTxFeeCap,
+		FilterCap:          DebugFilterCap,
+		FeeHistoryCap:      DebugFeeHistoryCap,
+		BlockRangeCap:      DebugBlockRangeCap,
+		LogsCap:            DebugLogsCap,
+		HTTPTimeout:        DebugHTTPTimeout,
+		HTTPIdleTimeout:    DebugHTTPIdleTimeout,
+		MaxOpenConnections: DebugMaxOpenConnections,
+		ReturnDataLimit:    DebugReturnDataLimit,
 	}
 }
 
